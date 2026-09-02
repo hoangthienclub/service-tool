@@ -1,7 +1,5 @@
-<img width="1480" height="926" alt="image" src="https://github.com/user-attachments/assets/670b5f05-3997-4601-a96c-6927bfb08509" />
-
 # ⚡ Service Monitor & Env Manager
-
+<img width="1480" height="926" alt="image" src="https://github.com/user-attachments/assets/670b5f05-3997-4601-a96c-6927bfb08509" />
 <div align="center">
 
 ![Service Monitor Banner](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-38bdf8?style=for-the-badge&logo=apple&logoColor=white)
