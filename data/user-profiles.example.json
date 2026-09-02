@@ -1,0 +1,17 @@
+{
+  "workspaceRoot": ".",
+  "customServicePaths": {},
+  "activeProfiles": {},
+  "customProfiles": {},
+  "customEnvOverrides": {},
+  "customServices": [],
+  "customCategories": [],
+  "globalProfiles": {
+    "default": {
+      "name": "Default",
+      "description": "Global Default Profile",
+      "env": {}
+    }
+  },
+  "activeGlobalProfile": "default"
+}

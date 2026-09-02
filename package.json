@@ -1,0 +1,39 @@
+{
+  "name": "service-monitor-dashboard",
+  "version": "1.0.0",
+  "description": "Local Dev Service Monitor & Env Manager Dashboard for Microservices",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev:server": "node server/index.js",
+    "dev:client": "vite client",
+    "dev": "node server/index.js",
+    "build:client": "vite build client --outDir ../dist",
+    "build": "npm run build:client",
+    "app": "xattr -cr node_modules/electron 2>/dev/null; codesign --force --deep --sign - node_modules/electron/dist/Electron.app 2>/dev/null; electron main.electron.js",
+    "app:mac": "xattr -cr node_modules/electron 2>/dev/null; codesign --force --deep --sign - node_modules/electron/dist/Electron.app 2>/dev/null; electron main.electron.js",
+    "dist:mac": "bash scripts/build-mac-app.sh",
+    "package": "bash scripts/build-mac-app.sh",
+    "start": "NODE_ENV=production node server/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "cross-spawn": "^7.0.3",
+    "express": "^4.19.2",
+    "tree-kill": "^1.2.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "ansi_up": "^6.0.2",
+    "autoprefixer": "^10.4.19",
+    "clsx": "^2.1.1",
+    "electron": "^32.3.3",
+    "lucide-react": "^0.400.0",
+    "postcss": "^8.4.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss": "^3.4.4",
+    "vite": "^5.3.1"
+  }
+}
