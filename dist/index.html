@@ -132,6 +132,12 @@
 
       const [currentRunningTask, setCurrentRunningTask] = useState(null);
       const [lastTaskLog, setLastTaskLog] = useState('');
+      const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+
+      const handleReloadAll = async () => {
+        await fetchServices();
+        if (typeof fetchCategories === 'function') await fetchCategories();
+      };
 
       // Fetch Services
       const fetchServices = useCallback(async () => {
@@ -972,46 +978,66 @@
 
                 <button
                   onClick={handleStartAll}
-                  className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-all shadow-md shadow-blue-900/30"
-                  title="Bắt đầu chạy toàn bộ microservices"
+                  className="group flex items-center p-2 hover:px-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-all duration-200 shadow-md shadow-blue-900/30 overflow-hidden"
+                  title="Start All (Bắt đầu chạy toàn bộ microservices)"
                 >
-                  <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                  <span>Start All</span>
+                  <svg className="w-3.5 h-3.5 fill-current flex-shrink-0" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    Start All
+                  </span>
                 </button>
 
                 <button
                   onClick={handleRestartAll}
-                  className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600 hover:text-white text-xs font-bold rounded-lg transition-all shadow-sm"
-                  title="Khởi động lại toàn bộ 6 microservices"
+                  className="group flex items-center p-2 hover:px-3 bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600 hover:text-white text-xs font-bold rounded-lg transition-all duration-200 shadow-sm overflow-hidden"
+                  title="Restart All (Khởi động lại toàn bộ microservices)"
                 >
-                  <span>↺</span>
-                  <span>Restart All</span>
+                  <span className="text-sm leading-none flex-shrink-0">↺</span>
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    Restart All
+                  </span>
                 </button>
 
                 <button
                   onClick={handleStopAll}
-                  className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-rose-600/20 text-rose-400 border border-rose-500/40 hover:bg-rose-600 hover:text-white text-xs font-bold rounded-lg transition-all"
-                  title="Dừng toàn bộ microservices"
+                  className="group flex items-center p-2 hover:px-3 bg-rose-600/20 text-rose-400 border border-rose-500/40 hover:bg-rose-600 hover:text-white text-xs font-bold rounded-lg transition-all duration-200 shadow-sm overflow-hidden"
+                  title="Stop All (Dừng toàn bộ microservices)"
                 >
-                  <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg>
-                  <span>Stop All</span>
+                  <svg className="w-3.5 h-3.5 fill-current flex-shrink-0" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg>
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    Stop All
+                  </span>
                 </button>
 
                 <button
                   onClick={handleKillAllPorts}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600/20 text-amber-300 border border-amber-500/40 hover:bg-amber-600 hover:text-white text-xs font-bold rounded-lg transition-all shadow-sm"
-                  title="Giải phóng (kill) toàn bộ port đang bị chiếm dụng của 6 microservices"
+                  className="group flex items-center p-2 hover:px-3 bg-amber-600/20 text-amber-300 border border-amber-500/40 hover:bg-amber-600 hover:text-white text-xs font-bold rounded-lg transition-all duration-200 shadow-sm overflow-hidden"
+                  title="Kill Ports (Giải phóng cổng toàn bộ microservices)"
                 >
-                  <span>⚡</span>
-                  <span>Kill Ports</span>
+                  <span className="text-sm leading-none flex-shrink-0">⚡</span>
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    Kill Ports
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setIsBackupModalOpen(true)}
+                  className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600 hover:text-white text-xs font-bold rounded-lg transition-all shadow-sm flex-shrink-0"
+                  title="Sao lưu & Khôi phục toàn bộ cấu hình (ENV, Danh mục, Services, Scripts)"
+                >
+                  <span>📦</span>
+                  <span>Sao Lưu / Khôi Phục</span>
                 </button>
 
                 <button
                   onClick={fetchServices}
                   title="Làm mới trạng thái"
-                  className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors"
+                  className="group flex items-center p-2 hover:px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-all duration-200 overflow-hidden"
                 >
-                  <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-blue-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  <svg className={`w-4 h-4 flex-shrink-0 ${isRefreshing ? 'animate-spin text-blue-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 text-xs font-bold transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    Làm Mới
+                  </span>
                 </button>
               </div>
             </header>
@@ -1405,6 +1431,13 @@
               </div>
             </div>
           )}
+
+          {/* Backup & Restore Full Data Modal */}
+          <BackupRestoreModal
+            isOpen={isBackupModalOpen}
+            onClose={() => setIsBackupModalOpen(false)}
+            onReloadAll={handleReloadAll}
+          />
 
         </div>
       );
@@ -2353,6 +2386,340 @@
                 <span>📑</span>
                 <span>Áp Dụng Sao Chép</span>
               </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ================= BACKUP & RESTORE MODAL =================
+    function BackupRestoreModal({ isOpen, onClose, onReloadAll }) {
+      if (!isOpen) return null;
+
+      const [activeTab, setActiveTab] = React.useState('export'); // 'export' | 'import'
+      const [importFile, setImportFile] = React.useState(null);
+      const [importData, setImportData] = React.useState(null);
+      const [inspection, setInspection] = React.useState(null);
+      const [importMode, setImportMode] = React.useState('merge'); // 'merge' | 'overwrite'
+      const [currentStats, setCurrentStats] = React.useState(null);
+      const [loading, setLoading] = React.useState(false);
+      const [errorMsg, setErrorMsg] = React.useState('');
+      const [successMsg, setSuccessMsg] = React.useState('');
+
+      // Load current stats for export tab
+      React.useEffect(() => {
+        fetch('/api/export/all')
+          .then(r => r.json())
+          .then(data => {
+            fetch('/api/config/inspect', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data })
+            })
+              .then(r => r.json())
+              .then(res => {
+                if (res.success) setCurrentStats(res);
+              });
+          })
+          .catch(e => {});
+      }, [isOpen]);
+
+      // Handle File Selection
+      const handleFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setImportFile(file);
+        setErrorMsg('');
+        setSuccessMsg('');
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const parsed = JSON.parse(event.target.result);
+            setImportData(parsed);
+            // Inspect
+            const res = await fetch('/api/config/inspect', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: parsed })
+            });
+            const data = await res.json();
+            if (data.success) {
+              setInspection(data);
+            } else {
+              setErrorMsg(data.error || 'File JSON không hợp lệ');
+            }
+          } catch (err) {
+            setErrorMsg('Lỗi đọc file JSON: ' + err.message);
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      const handleExecuteImport = async () => {
+        if (!importData) {
+          setErrorMsg('Vui lòng chọn file backup JSON!');
+          return;
+        }
+        if (importMode === 'overwrite') {
+          if (!confirm('⚠️ CẢNH BÁO: Chế độ GHI ĐÈ sẽ thay thế toàn bộ Services, Danh mục, Scripts và ENV hiện tại. Bạn có chắc chắn muốn tiếp tục?')) {
+            return;
+          }
+        }
+        try {
+          setLoading(true);
+          setErrorMsg('');
+          setSuccessMsg('');
+          const res = await fetch('/api/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: importData, mode: importMode })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setSuccessMsg(`Khôi phục thành công! Đã nạp ${data.servicesCount || 0} services, ${data.categoriesCount || 0} danh mục, ${data.scriptsCount || 0} scripts.`);
+            if (onReloadAll) await onReloadAll();
+            setTimeout(() => {
+              onClose();
+            }, 1800);
+          } else {
+            setErrorMsg(data.error || 'Khôi phục thất bại');
+          }
+        } catch (err) {
+          setErrorMsg(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleDownloadExport = () => {
+        window.open('/api/export/all', '_blank');
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-[#0b101e] border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+            
+            {/* Header */}
+            <div className="p-4 bg-[#070b15] border-b border-slate-800 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-2xl">📦</span>
+                <div>
+                  <h3 className="text-base font-bold text-white">Sao Lưu & Khôi Phục Toàn Bộ Dữ Liệu</h3>
+                  <p className="text-[11px] text-slate-400">Xuất hoặc nhập toàn bộ ENV, Danh mục, Services và Custom Scripts (JSON v2.0)</p>
+                </div>
+              </div>
+              <button onClick={onClose} className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800">✕</button>
+            </div>
+
+            {/* Tab Switcher */}
+            <div className="flex border-b border-slate-800 bg-[#080d19] px-4 pt-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => { setActiveTab('export'); setErrorMsg(''); setSuccessMsg(''); }}
+                className={`pb-2.5 px-4 text-xs font-bold border-b-2 flex items-center space-x-2 transition-all ${
+                  activeTab === 'export'
+                    ? 'border-emerald-500 text-emerald-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>💾</span>
+                <span>Xuất Dữ Liệu (Backup)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('import'); setErrorMsg(''); setSuccessMsg(''); }}
+                className={`pb-2.5 px-4 text-xs font-bold border-b-2 flex items-center space-x-2 transition-all ${
+                  activeTab === 'import'
+                    ? 'border-blue-500 text-blue-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>📥</span>
+                <span>Khôi Phục (Restore)</span>
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
+              
+              {/* Tab Export */}
+              {activeTab === 'export' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-[#070b15] rounded-xl border border-slate-800 space-y-3">
+                    <span className="text-xs font-bold text-slate-200 block">📊 Tổng Hợp Dữ Liệu Sẽ Xuất:</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 bg-[#0d1424] rounded-lg border border-slate-800 text-center">
+                        <span className="text-lg block">⚙️</span>
+                        <span className="text-xs text-slate-400 block mt-1">Services</span>
+                        <span className="text-sm font-mono font-bold text-emerald-400">{currentStats ? currentStats.servicesCount : '...'}</span>
+                      </div>
+                      <div className="p-3 bg-[#0d1424] rounded-lg border border-slate-800 text-center">
+                        <span className="text-lg block">🏷️</span>
+                        <span className="text-xs text-slate-400 block mt-1">Danh Mục</span>
+                        <span className="text-sm font-mono font-bold text-purple-400">{currentStats ? currentStats.categoriesCount : '...'}</span>
+                      </div>
+                      <div className="p-3 bg-[#0d1424] rounded-lg border border-slate-800 text-center">
+                        <span className="text-lg block">📜</span>
+                        <span className="text-xs text-slate-400 block mt-1">Scripts</span>
+                        <span className="text-sm font-mono font-bold text-amber-400">{currentStats ? currentStats.scriptsCount : '...'}</span>
+                      </div>
+                      <div className="p-3 bg-[#0d1424] rounded-lg border border-slate-800 text-center">
+                        <span className="text-lg block">🌿</span>
+                        <span className="text-xs text-slate-400 block mt-1">Env Profiles</span>
+                        <span className="text-sm font-mono font-bold text-cyan-400">
+                          {currentStats?.envSummary ? `${currentStats.envSummary.totalProfilesCount || 0} profiles` : '...'}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono block">
+                          {currentStats?.envSummary ? `${currentStats.envSummary.totalEnvVars || 0} biến ENV` : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-emerald-950/20 border border-emerald-800/40 rounded-xl space-y-2">
+                    <h4 className="text-xs font-bold text-emerald-300 flex items-center space-x-1.5">
+                      <span>✨</span>
+                      <span>Bản sao lưu chuẩn JSON 100% độc lập</span>
+                    </h4>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      File tải về chứa đầy đủ toàn bộ cấu hình biến môi trường đa môi trường (Local/Dev/UAT/Prod), danh mục phân loại, danh sách microservices và custom scripts. Bạn có thể lưu giữ hoặc chuyển sang máy khác dễ dàng.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadExport}
+                    className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-950/50 flex items-center justify-center space-x-2 transition-all"
+                  >
+                    <span>💾</span>
+                    <span>Tải Về File Backup Toàn Bộ (.json)</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Tab Import */}
+              {activeTab === 'import' && (
+                <div className="space-y-4">
+                  {/* File Upload Input */}
+                  <div className="p-5 border-2 border-dashed border-slate-700 hover:border-cyan-500 bg-[#070b15] rounded-xl text-center cursor-pointer transition-colors relative">
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleFileChange}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                    <span className="text-3xl block mb-2">📁</span>
+                    <span className="text-xs font-bold text-white block">
+                      {importFile ? importFile.name : 'Nhấp vào đây hoặc kéo thả file backup .json'}
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-1">Hỗ trợ các file backup JSON v1.0 và v2.0</span>
+                  </div>
+
+                  {/* Inspection Preview */}
+                  {inspection && (
+                    <div className="p-4 bg-[#0d1424] rounded-xl border border-cyan-800/50 space-y-3 animate-fadeIn">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="text-xs font-bold text-cyan-300 flex items-center space-x-1.5">
+                          <span>🔍</span>
+                          <span>Xem Trước Nội Dung File:</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {inspection.exportedAt ? `Xuất lúc: ${new Date(inspection.exportedAt).toLocaleString()}` : 'Format chuẩn'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                        <div className="p-2 bg-[#070b15] rounded-lg">
+                          <span className="text-slate-400 block text-[10px]">Services</span>
+                          <span className="font-bold text-emerald-400 font-mono text-sm">{inspection.servicesCount}</span>
+                        </div>
+                        <div className="p-2 bg-[#070b15] rounded-lg">
+                          <span className="text-slate-400 block text-[10px]">Danh Mục</span>
+                          <span className="font-bold text-purple-400 font-mono text-sm">{inspection.categoriesCount}</span>
+                        </div>
+                        <div className="p-2 bg-[#070b15] rounded-lg">
+                          <span className="text-slate-400 block text-[10px]">Scripts</span>
+                          <span className="font-bold text-amber-400 font-mono text-sm">{inspection.scriptsCount}</span>
+                        </div>
+                        <div className="p-2 bg-[#070b15] rounded-lg">
+                          <span className="text-slate-400 block text-[10px]">Env Profiles</span>
+                          <span className="font-bold text-cyan-400 font-mono text-sm">
+                            {inspection.envSummary?.totalProfilesCount || 0}
+                          </span>
+                          <span className="text-[9px] text-slate-500 font-mono block">
+                            {inspection.envSummary?.totalEnvVars || 0} biến
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Mode Selector */}
+                      <div className="space-y-2 pt-2 border-t border-slate-800">
+                        <label className="text-xs font-semibold text-slate-300 block">Chọn chế độ khôi phục:</label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setImportMode('merge')}
+                            className={`p-3 rounded-xl border text-left transition-all ${
+                              importMode === 'merge'
+                                ? 'bg-blue-950/40 border-blue-500 text-white'
+                                : 'bg-[#070b15] border-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-1.5 font-bold text-xs text-blue-400 mb-1">
+                              <span>➕</span>
+                              <span>Gộp Thêm (Merge)</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-tight">
+                              Giữ nguyên dữ liệu hiện tại, bổ sung thêm các service, danh mục, script mới.
+                            </p>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setImportMode('overwrite')}
+                            className={`p-3 rounded-xl border text-left transition-all ${
+                              importMode === 'overwrite'
+                                ? 'bg-rose-950/40 border-rose-500 text-white'
+                                : 'bg-[#070b15] border-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-1.5 font-bold text-xs text-rose-400 mb-1">
+                              <span>🔄</span>
+                              <span>Ghi Đè Toàn Bộ (Overwrite)</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-tight">
+                              Xóa toàn bộ cấu hình cũ và khôi phục 100% trạng thái chính xác từ file backup.
+                            </p>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {errorMsg && (
+                    <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-xl text-xs text-rose-300">
+                      ⚠ {errorMsg}
+                    </div>
+                  )}
+
+                  {successMsg && (
+                    <div className="p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-xl text-xs text-emerald-300">
+                      ✔ {successMsg}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={!importData || loading}
+                    onClick={handleExecuteImport}
+                    className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-lg shadow-blue-950/50 flex items-center justify-center space-x-2 transition-all"
+                  >
+                    <span>🚀</span>
+                    <span>{loading ? 'Đang khôi phục...' : `Khôi Phục Dữ Liệu (${importMode === 'merge' ? 'Gộp thêm' : 'Ghi đè'})`}</span>
+                  </button>
+                </div>
+              )}
+
             </div>
           </div>
         </div>

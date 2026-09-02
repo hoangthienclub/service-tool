@@ -320,9 +320,10 @@ const server = http.createServer(async (req, res) => {
       // GET /api/export/all (Export all config as JSON)
       if (pathname === '/api/export/all' && method === 'GET') {
         const config = envManager.exportAllConfig();
+        const dateStr = new Date().toISOString().slice(0, 10);
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Content-Disposition': 'attachment; filename="service-dashboard-config.json"'
+          'Content-Disposition': `attachment; filename="service-monitor-backup-${dateStr}.json"`
         });
         return res.end(JSON.stringify(config, null, 2));
       }
@@ -339,11 +340,26 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify(config, null, 2));
       }
 
+      // POST /api/config/inspect (Preview & inspect import JSON)
+      if (pathname === '/api/config/inspect' && method === 'POST') {
+        try {
+          const body = await getRequestBody(req);
+          const inspection = envManager.inspectImportData(body.data || body);
+          return sendJson(res, 200, { success: true, ...inspection });
+        } catch (err) {
+          return sendJson(res, 400, { success: false, error: err.message });
+        }
+      }
+
       // POST /api/import (Import JSON configuration)
       if (pathname === '/api/import' && method === 'POST') {
-        const body = await getRequestBody(req);
-        const result = envManager.importConfig(body.data || body, { mode: body.mode || 'merge' });
-        return sendJson(res, 200, { success: true, ...result });
+        try {
+          const body = await getRequestBody(req);
+          const result = envManager.importConfig(body.data || body, { mode: body.mode || 'merge' });
+          return sendJson(res, 200, { success: true, ...result });
+        } catch (err) {
+          return sendJson(res, 400, { success: false, error: err.message });
+        }
       }
 
       // POST /api/services/:id/start

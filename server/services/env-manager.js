@@ -614,10 +614,21 @@ class EnvManager {
   // ================= IMPORT & EXPORT ENGINE =================
   exportAllConfig() {
     const rawServices = this.getRawServicesList();
+    const categories = this.getCategories();
+    const globalScripts = this.getGlobalScripts();
+    const now = new Date();
+
     return {
-      version: '1.0.0',
+      version: '2.0.0',
+      format: 'service-monitor-full-backup',
+      exportedAt: now.toISOString(),
+      appName: 'Service Monitor & Env Manager',
       workspaceRoot: this.userConfig.workspaceRoot || ROOT_DIR,
-      exportedAt: new Date().toISOString(),
+
+      // 1. Categories
+      categories: categories,
+
+      // 2. Services
       services: rawServices.map(s => ({
         id: s.id,
         name: s.name,
@@ -630,10 +641,25 @@ class EnvManager {
         defaultProfile: s.defaultProfile || 'local',
         profiles: s.profiles || {}
       })),
-      activeProfiles: this.userConfig.activeProfiles,
-      customProfiles: this.userConfig.customProfiles,
-      customEnvOverrides: this.userConfig.customEnvOverrides,
-      customServicePaths: this.userConfig.customServicePaths
+
+      // 3. Environment Profiles & Overrides
+      envConfig: {
+        globalProfiles: this.userConfig.globalProfiles || {},
+        activeGlobalProfile: this.userConfig.activeGlobalProfile || 'default',
+        activeProfiles: this.userConfig.activeProfiles || {},
+        customProfiles: this.userConfig.customProfiles || {},
+        customEnvOverrides: this.userConfig.customEnvOverrides || {},
+        customServicePaths: this.userConfig.customServicePaths || {}
+      },
+
+      // 4. Custom Scripts
+      globalScripts: globalScripts,
+
+      // Legacy compatibility fields
+      activeProfiles: this.userConfig.activeProfiles || {},
+      customProfiles: this.userConfig.customProfiles || {},
+      customEnvOverrides: this.userConfig.customEnvOverrides || {},
+      customServicePaths: this.userConfig.customServicePaths || {}
     };
   }
 
@@ -661,57 +687,182 @@ class EnvManager {
     };
   }
 
+  inspectImportData(importData) {
+    if (!importData || typeof importData !== 'object') {
+      throw new Error('Dữ liệu không hợp lệ (cần file JSON hợp lệ)!');
+    }
+
+    const services = Array.isArray(importData.services)
+      ? importData.services
+      : (importData.service ? [importData.service] : []);
+
+    const categories = Array.isArray(importData.categories) ? importData.categories : [];
+    const globalScripts = Array.isArray(importData.globalScripts) ? importData.globalScripts : [];
+
+    const envConfig = importData.envConfig || {};
+    const globalProfiles = envConfig.globalProfiles || importData.globalProfiles || {};
+    const customProfiles = envConfig.customProfiles || importData.customProfiles || {};
+
+    const distinctProfileNames = new Set();
+    let totalServiceProfilesCount = 0;
+    let totalEnvVars = 0;
+
+    // 1. Global Profiles
+    for (const [pName, g] of Object.entries(globalProfiles)) {
+      distinctProfileNames.add(pName);
+      if (g && g.env) totalEnvVars += Object.keys(g.env).length;
+    }
+
+    // 2. Service Profiles from services list
+    for (const s of services) {
+      const sProfiles = s.profiles || {};
+      const customP = (customProfiles && customProfiles[s.id]) || {};
+      const allP = { ...sProfiles, ...customP };
+      for (const [pName, pData] of Object.entries(allP)) {
+        distinctProfileNames.add(pName);
+        totalServiceProfilesCount++;
+        if (pData && pData.env) {
+          totalEnvVars += Object.keys(pData.env).length;
+        }
+      }
+    }
+
+    // 3. Custom Profiles for services not in list
+    for (const [sId, sCustom] of Object.entries(customProfiles)) {
+      if (!services.some(s => s.id === sId) && typeof sCustom === 'object') {
+        for (const [pName, pData] of Object.entries(sCustom)) {
+          distinctProfileNames.add(pName);
+          totalServiceProfilesCount++;
+          if (pData && pData.env) totalEnvVars += Object.keys(pData.env).length;
+        }
+      }
+    }
+
+    return {
+      valid: true,
+      version: importData.version || '1.0.0',
+      exportedAt: importData.exportedAt || null,
+      servicesCount: services.length,
+      services: services.map(s => ({ id: s.id, name: s.name, port: s.port, category: s.category || s.group })),
+      categoriesCount: categories.length,
+      categories: categories.map(c => ({ id: c.id, name: c.name, icon: c.icon })),
+      scriptsCount: globalScripts.length,
+      scripts: globalScripts.map(sc => ({ id: sc.id, name: sc.name, command: sc.command, icon: sc.icon })),
+      envSummary: {
+        distinctProfilesCount: distinctProfileNames.size,
+        distinctProfileNames: Array.from(distinctProfileNames),
+        globalProfilesCount: Object.keys(globalProfiles).length,
+        serviceProfilesCount: totalServiceProfilesCount,
+        totalProfilesCount: distinctProfileNames.size,
+        totalEnvVars
+      }
+    };
+  }
+
   importConfig(importData, options = { mode: 'merge' }) {
     if (!importData || typeof importData !== 'object') {
       throw new Error('Dữ liệu Import không hợp lệ (cần file JSON hợp lệ)!');
     }
 
-    // Support single service import or all config import
     const incomingServices = Array.isArray(importData.services) 
       ? importData.services 
       : (importData.service ? [importData.service] : []);
 
-    if (incomingServices.length === 0) {
-      throw new Error('Không tìm thấy định nghĩa service nào trong file import!');
-    }
+    const incomingCategories = Array.isArray(importData.categories) ? importData.categories : [];
+    const incomingScripts = Array.isArray(importData.globalScripts) ? importData.globalScripts : [];
 
-    // Validate incoming services
-    for (const s of incomingServices) {
-      if (!s.id || !s.name) {
-        throw new Error(`Service không hợp lệ trong file import: thiếu 'id' hoặc 'name'!`);
-      }
-    }
+    const envConfig = importData.envConfig || {};
+    const incomingGlobalProfiles = envConfig.globalProfiles || importData.globalProfiles;
+    const incomingActiveGlobalProfile = envConfig.activeGlobalProfile || importData.activeGlobalProfile;
+    const incomingActiveProfiles = envConfig.activeProfiles || importData.activeProfiles;
+    const incomingCustomProfiles = envConfig.customProfiles || importData.customProfiles;
+    const incomingCustomEnvOverrides = envConfig.customEnvOverrides || importData.customEnvOverrides;
+    const incomingCustomServicePaths = envConfig.customServicePaths || importData.customServicePaths;
 
     const mode = options.mode || 'merge';
 
     if (mode === 'overwrite') {
-      this.userConfig.customServices = incomingServices;
-      if (importData.activeProfiles) this.userConfig.activeProfiles = importData.activeProfiles;
-      if (importData.customProfiles) this.userConfig.customProfiles = importData.customProfiles;
-      if (importData.customEnvOverrides) this.userConfig.customEnvOverrides = importData.customEnvOverrides;
-      if (importData.customServicePaths) this.userConfig.customServicePaths = importData.customServicePaths;
-      if (importData.workspaceRoot) this.userConfig.workspaceRoot = importData.workspaceRoot;
+      // 1. Services
+      if (incomingServices.length > 0) {
+        this.userConfig.customServices = incomingServices;
+      }
+      // 2. Categories
+      if (incomingCategories.length > 0) {
+        this.userConfig.customCategories = incomingCategories;
+      }
+      // 3. ENV
+      if (incomingGlobalProfiles) this.userConfig.globalProfiles = incomingGlobalProfiles;
+      if (incomingActiveGlobalProfile) this.userConfig.activeGlobalProfile = incomingActiveGlobalProfile;
+      if (incomingActiveProfiles) this.userConfig.activeProfiles = incomingActiveProfiles;
+      if (incomingCustomProfiles) this.userConfig.customProfiles = incomingCustomProfiles;
+      if (incomingCustomEnvOverrides) this.userConfig.customEnvOverrides = incomingCustomEnvOverrides;
+      if (incomingCustomServicePaths) this.userConfig.customServicePaths = incomingCustomServicePaths;
+      // 4. Scripts
+      if (Array.isArray(incomingScripts)) {
+        this.userConfig.globalScripts = incomingScripts;
+      }
     } else {
       // Merge mode
-      const currentList = [...this.getRawServicesList()];
-      for (const inc of incomingServices) {
-        const idx = currentList.findIndex(s => s.id === inc.id);
-        if (idx >= 0) {
-          currentList[idx] = { ...currentList[idx], ...inc };
-        } else {
-          currentList.push(inc);
+      // 1. Merge Services
+      if (incomingServices.length > 0) {
+        const currentList = [...this.getRawServicesList()];
+        for (const inc of incomingServices) {
+          const idx = currentList.findIndex(s => s.id === inc.id);
+          if (idx >= 0) {
+            currentList[idx] = { ...currentList[idx], ...inc };
+          } else {
+            currentList.push(inc);
+          }
         }
+        this.userConfig.customServices = currentList;
       }
-      this.userConfig.customServices = currentList;
 
-      if (importData.activeProfiles) {
-        this.userConfig.activeProfiles = { ...this.userConfig.activeProfiles, ...importData.activeProfiles };
+      // 2. Merge Categories
+      if (incomingCategories.length > 0) {
+        const currentCats = [...(this.userConfig.customCategories || [])];
+        for (const cat of incomingCategories) {
+          const idx = currentCats.findIndex(c => c.id === cat.id);
+          if (idx >= 0) {
+            currentCats[idx] = { ...currentCats[idx], ...cat };
+          } else {
+            currentCats.push(cat);
+          }
+        }
+        this.userConfig.customCategories = currentCats;
       }
-      if (importData.customProfiles) {
-        this.userConfig.customProfiles = { ...this.userConfig.customProfiles, ...importData.customProfiles };
+
+      // 3. Merge ENV
+      if (incomingGlobalProfiles) {
+        this.userConfig.globalProfiles = { ...this.userConfig.globalProfiles, ...incomingGlobalProfiles };
       }
-      if (importData.customEnvOverrides) {
-        this.userConfig.customEnvOverrides = { ...this.userConfig.customEnvOverrides, ...importData.customEnvOverrides };
+      if (incomingActiveGlobalProfile) {
+        this.userConfig.activeGlobalProfile = incomingActiveGlobalProfile;
+      }
+      if (incomingActiveProfiles) {
+        this.userConfig.activeProfiles = { ...this.userConfig.activeProfiles, ...incomingActiveProfiles };
+      }
+      if (incomingCustomProfiles) {
+        this.userConfig.customProfiles = { ...this.userConfig.customProfiles, ...incomingCustomProfiles };
+      }
+      if (incomingCustomEnvOverrides) {
+        this.userConfig.customEnvOverrides = { ...this.userConfig.customEnvOverrides, ...incomingCustomEnvOverrides };
+      }
+      if (incomingCustomServicePaths) {
+        this.userConfig.customServicePaths = { ...this.userConfig.customServicePaths, ...incomingCustomServicePaths };
+      }
+
+      // 4. Merge Scripts
+      if (incomingScripts.length > 0) {
+        const currentScripts = [...(this.userConfig.globalScripts || [])];
+        for (const sc of incomingScripts) {
+          const idx = currentScripts.findIndex(s => s.id === sc.id);
+          if (idx >= 0) {
+            currentScripts[idx] = { ...currentScripts[idx], ...sc };
+          } else {
+            currentScripts.push(sc);
+          }
+        }
+        this.userConfig.globalScripts = currentScripts;
       }
     }
 
@@ -719,8 +870,12 @@ class EnvManager {
     return {
       success: true,
       mode,
-      importedCount: incomingServices.length,
-      services: this.getServices()
+      servicesCount: incomingServices.length,
+      categoriesCount: incomingCategories.length,
+      scriptsCount: incomingScripts.length,
+      services: this.getServices(),
+      categories: this.getCategories(),
+      globalScripts: this.getGlobalScripts()
     };
   }
 
