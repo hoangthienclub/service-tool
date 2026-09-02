@@ -1,3 +1,5 @@
+<img width="1480" height="926" alt="image" src="https://github.com/user-attachments/assets/670b5f05-3997-4601-a96c-6927bfb08509" />
+
 # ⚡ Service Monitor & Env Manager
 
 <div align="center">
