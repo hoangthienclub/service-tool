@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const wslHelper = require('./wsl-helper');
 
 const ROOT_DIR = path.resolve(__dirname, '../../../../');
 const PROTECTED_PROFILES = [];
@@ -356,12 +357,35 @@ class EnvManager {
     return result;
   }
 
-  inspectDirectory(dirPath) {
+  async inspectDirectory(dirPath, options = {}) {
     if (!dirPath || typeof dirPath !== 'string') {
       return { success: false, error: 'Đường dẫn không hợp lệ', exists: false };
     }
+
+    const isWsl = options.isWsl || dirPath.startsWith('/home/') || dirPath.startsWith('~/') || dirPath.startsWith('\\\\wsl') || dirPath.startsWith('//wsl');
+    const wslDistro = options.wslDistro || 'Ubuntu';
+
+    if (isWsl) {
+      const wslRes = await wslHelper.inspectWslDirectory(dirPath, wslDistro);
+      if (wslRes && wslRes.exists) {
+        return {
+          ...wslRes,
+          env: wslRes.detectedEnv || {}
+        };
+      }
+    }
+
     const targetDir = path.resolve(dirPath.trim());
     if (!fs.existsSync(targetDir)) {
+      if (wslHelper.isWslAvailable() && (dirPath.startsWith('/') || dirPath.startsWith('~'))) {
+        const fallbackWsl = await wslHelper.inspectWslDirectory(dirPath, wslDistro);
+        if (fallbackWsl && fallbackWsl.exists) {
+          return {
+            ...fallbackWsl,
+            env: fallbackWsl.detectedEnv || {}
+          };
+        }
+      }
       return { success: false, error: 'Thư mục không tồn tại', exists: false, dirPath: targetDir };
     }
 
@@ -525,6 +549,9 @@ class EnvManager {
       args: Array.isArray(serviceData.args) ? serviceData.args : (serviceData.args ? serviceData.args.split(' ') : ['run', 'dev']),
       cwd: serviceData.cwd || serviceData.relativeDir || '',
       relativeDir: serviceData.relativeDir || '',
+      isWsl: !!serviceData.isWsl,
+      wslDistro: serviceData.wslDistro || 'Ubuntu',
+      wslPath: serviceData.wslPath || serviceData.cwd || '',
       defaultProfile: serviceData.defaultProfile || 'default',
       isCustom: true,
       profiles: serviceData.profiles || {
@@ -568,7 +595,10 @@ class EnvManager {
         ? (Array.isArray(serviceData.args) ? serviceData.args : serviceData.args.split(' ')) 
         : current.args,
       cwd: serviceData.cwd !== undefined ? serviceData.cwd : (current.cwd || current.relativeDir || ''),
-      relativeDir: serviceData.relativeDir !== undefined ? serviceData.relativeDir : current.relativeDir
+      relativeDir: serviceData.relativeDir !== undefined ? serviceData.relativeDir : current.relativeDir,
+      isWsl: serviceData.isWsl !== undefined ? !!serviceData.isWsl : !!current.isWsl,
+      wslDistro: serviceData.wslDistro !== undefined ? serviceData.wslDistro : (current.wslDistro || 'Ubuntu'),
+      wslPath: serviceData.wslPath !== undefined ? serviceData.wslPath : (current.wslPath || current.cwd || '')
     };
 
     if (serviceData.cwd !== undefined) {

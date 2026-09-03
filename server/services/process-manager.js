@@ -182,10 +182,34 @@ class ProcessManager extends EventEmitter {
         spawnEnv.PORT = String(svc.port);
       }
 
-      const child = spawn(svc.script, svc.args, {
-        cwd: svc.cwd,
+      let spawnCmd = svc.script;
+      let spawnArgs = Array.isArray(svc.args) ? [...svc.args] : (svc.args ? svc.args.split(' ') : []);
+      let spawnCwd = svc.cwd;
+      let spawnShell = true;
+
+      if (svc.isWsl && process.platform === 'win32') {
+        const distro = svc.wslDistro || 'Ubuntu';
+        const wslPath = svc.wslPath || svc.cwd || '~';
+
+        const envExports = Object.entries(spawnEnv)
+          .filter(([k]) => !['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PSMODULEPATH'].includes(k.toUpperCase()))
+          .map(([k, v]) => `export ${k}=${JSON.stringify(String(v))}`)
+          .join('; ');
+
+        const runCmd = `${svc.script} ${Array.isArray(svc.args) ? svc.args.join(' ') : (svc.args || '')}`;
+        const fullBashScript = envExports ? `${envExports}; ${runCmd}` : runCmd;
+
+        spawnCmd = 'wsl.exe';
+        spawnArgs = ['-d', distro, '--cd', wslPath, 'bash', '-c', fullBashScript];
+        spawnCwd = undefined;
+        spawnShell = false;
+        this.appendLog(serviceId, `\x1b[35m[WSL2] Khởi chạy trong Distro ${distro} tại ${wslPath}\x1b[0m\n`, 'system');
+      }
+
+      const child = spawn(spawnCmd, spawnArgs, {
+        cwd: spawnCwd,
         env: spawnEnv,
-        shell: true,
+        shell: spawnShell,
         stdio: ['pipe', 'pipe', 'pipe']
       });
 

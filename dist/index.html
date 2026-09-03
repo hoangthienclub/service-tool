@@ -3343,7 +3343,18 @@
             {/* Title + Profile Select + Tools */}
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <h3 className="font-mono text-base font-bold text-white tracking-wide">{service.name}</h3>
+                <div className="flex items-center space-x-2">
+                  <h3 className="font-mono text-base font-bold text-white tracking-wide">{service.name}</h3>
+                  {service.isWsl && (
+                    <span
+                      className="px-1.5 py-0.5 bg-purple-950/80 text-purple-300 border border-purple-600/40 rounded text-[10px] font-mono font-bold flex items-center space-x-1"
+                      title={`WSL2 Distro: ${service.wslDistro || 'Ubuntu'} (${service.wslPath || service.cwd})`}
+                    >
+                      <span>🐧</span>
+                      <span>WSL2</span>
+                    </span>
+                  )}
+                </div>
                 
                 {/* Profile Select Dropdown */}
                 <select
@@ -4347,6 +4358,15 @@
                     <div className="space-y-1">
                       <div className="flex items-center space-x-2">
                         <h3 className="font-mono text-sm font-bold text-white tracking-wide">{svc.name}</h3>
+                        {svc.isWsl && (
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-950/80 text-purple-300 border border-purple-600/40 font-mono flex items-center space-x-1"
+                            title={`WSL2 Distro: ${svc.wslDistro || 'Ubuntu'} (${svc.wslPath || svc.cwd})`}
+                          >
+                            <span>🐧</span>
+                            <span>WSL2</span>
+                          </span>
+                        )}
                         <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono">
                           {svc.group || 'SERVICE'}
                         </span>
@@ -4469,6 +4489,10 @@
       const [script, setScript] = useState(service?.script || 'yarn');
       const [args, setArgs] = useState((service?.args || ['start:dev']).join(' '));
       const [cwd, setCwd] = useState(service?.cwd || service?.relativeDir || '');
+      const [isWsl, setIsWsl] = useState(!!service?.isWsl);
+      const [wslDistro, setWslDistro] = useState(service?.wslDistro || 'Ubuntu');
+      const [availableDistros, setAvailableDistros] = useState(['Ubuntu']);
+      const [isWslAvailable, setIsWslAvailable] = useState(false);
       const [detectedEnv, setDetectedEnv] = useState(service?.profiles?.default?.env || null);
       const [detectedEnvSource, setDetectedEnvSource] = useState('');
       const [packageScripts, setPackageScripts] = useState([]);
@@ -4481,16 +4505,36 @@
       const [inspecting, setInspecting] = useState(false);
       const [error, setError] = useState('');
 
-      const handleInspectCwd = async (folderPath) => {
+      useEffect(() => {
+        fetch('/api/wsl/distros')
+          .then(r => r.json())
+          .then(data => {
+            if (data.success) {
+              setIsWslAvailable(data.isAvailable);
+              if (data.distros && data.distros.length > 0) {
+                setAvailableDistros(data.distros);
+                if (!service?.wslDistro && data.defaultDistro) {
+                  setWslDistro(data.defaultDistro);
+                }
+              }
+            }
+          })
+          .catch(e => {});
+      }, []);
+
+      const handleInspectCwd = async (folderPath, overrideIsWsl, overrideDistro) => {
         if (!folderPath || typeof folderPath !== 'string') return;
         const clean = folderPath.trim();
         if (!clean) return;
+        const useWsl = overrideIsWsl !== undefined ? overrideIsWsl : isWsl;
+        const targetDistro = overrideDistro !== undefined ? overrideDistro : wslDistro;
+
         setInspecting(true);
         try {
           const res = await fetch('/api/inspect-directory', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cwd: clean })
+            body: JSON.stringify({ cwd: clean, isWsl: useWsl, wslDistro: targetDistro })
           });
           const data = await res.json();
           if (data.success) {
@@ -4564,7 +4608,12 @@
           const res = await fetch('/api/browse-directory', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: `Chọn thư mục cho service ${name || id || ''}:` })
+            body: JSON.stringify({
+              prompt: `Chọn thư mục cho service ${name || id || ''}:`,
+              isWsl,
+              wslDistro,
+              defaultDir: cwd
+            })
           });
           const data = await res.json();
           if (data.success && data.path) {
@@ -4609,6 +4658,9 @@
             args: args.trim().split(' ').filter(Boolean),
             cwd: cwd.trim(),
             relativeDir: cwd.trim(),
+            isWsl: isWsl,
+            wslDistro: wslDistro,
+            wslPath: cwd.trim(),
             defaultEnv: detectedEnv
           });
         } catch (err) {
@@ -4635,15 +4687,84 @@
                 </div>
               )}
 
+              {/* Step 0: WSL2 Toggle Switch */}
+              <div className="bg-[#050811] p-3.5 rounded-xl border border-slate-800 flex items-center justify-between transition-all">
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">🐧</span>
+                  <div>
+                    <label
+                      onClick={() => {
+                        const next = !isWsl;
+                        setIsWsl(next);
+                        if (cwd) handleInspectCwd(cwd, next, wslDistro);
+                      }}
+                      className="text-xs font-bold text-slate-200 block cursor-pointer hover:text-cyan-300"
+                    >
+                      Chạy trong WSL2 (Windows Subsystem for Linux)
+                    </label>
+                    <span className="text-[11px] text-slate-400 block">
+                      Bật khi thư mục dự án nằm trong ổ đĩa Linux WSL2 (<code className="text-cyan-300">/home/...</code> hoặc <code className="text-cyan-300">~/...</code>)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2.5 flex-shrink-0">
+                  {isWsl && (
+                    <div className="flex items-center space-x-1.5 bg-[#0b101c] border border-cyan-700/60 rounded-lg px-2 py-1">
+                      <span className="text-[10px] text-slate-400 font-mono">Distro:</span>
+                      <select
+                        value={wslDistro}
+                        onChange={(e) => {
+                          setWslDistro(e.target.value);
+                          if (cwd) handleInspectCwd(cwd, true, e.target.value);
+                        }}
+                        className="bg-transparent text-xs font-bold text-cyan-300 focus:outline-none cursor-pointer"
+                      >
+                        {availableDistros.map((d) => (
+                          <option key={d} value={d} className="bg-[#090d16] text-white font-bold">
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !isWsl;
+                      setIsWsl(next);
+                      if (cwd) handleInspectCwd(cwd, next, wslDistro);
+                    }}
+                    className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors duration-200 cursor-pointer ${
+                      isWsl ? 'bg-cyan-600' : 'bg-slate-700'
+                    }`}
+                  >
+                    <div
+                      className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                        isWsl ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
               {/* Step 1: Thư Mục Service (CWD) */}
               <div className="bg-[#050811] p-4 rounded-xl border border-slate-800 space-y-2.5">
-                <label className="text-xs font-bold text-slate-200 block">
-                  📂 Thư Mục Service (CWD)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 block">
+                    📂 Thư Mục Service (CWD) {isWsl && <span className="text-cyan-400 font-mono text-[11px]">(Đường dẫn WSL2)</span>}
+                  </label>
+                  {isWsl && (
+                    <span className="text-[10px] text-cyan-300 font-mono bg-cyan-950/60 border border-cyan-800 px-2 py-0.5 rounded-md">
+                      🐧 Linux Path
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center space-x-2">
                   <input
                     type="text"
-                    placeholder="ví dụ: /Users/thientran/projects/my-service"
+                    placeholder={isWsl ? "ví dụ: /home/username/projects/my-service hoặc ~/my-service" : "ví dụ: /Users/thientran/projects/my-service hoặc C:/projects/my-service"}
                     value={cwd}
                     onChange={(e) => {
                       setCwd(e.target.value);
@@ -4655,10 +4776,10 @@
                     type="button"
                     onClick={handleBrowseFolder}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold font-mono whitespace-nowrap flex items-center space-x-1.5 transition-all shadow-md shadow-indigo-900/30 flex-shrink-0"
-                    title="Mở Finder để chọn thư mục"
+                    title={isWsl ? "Mở hộp thoại chọn thư mục WSL2" : "Mở hộp thoại chọn thư mục"}
                   >
                     <span>📂</span>
-                    <span>Chọn Thư Mục...</span>
+                    <span>{isWsl ? 'Chọn Thư Mục WSL...' : 'Chọn Thư Mục...'}</span>
                   </button>
                 </div>
 

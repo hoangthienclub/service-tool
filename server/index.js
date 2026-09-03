@@ -176,19 +176,30 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true, ...config });
       }
 
+      // GET /api/wsl/distros (List installed WSL distros)
+      if (pathname === '/api/wsl/distros' && method === 'GET') {
+        const wslHelper = require('./services/wsl-helper');
+        const result = await wslHelper.getDistros();
+        return sendJson(res, 200, { success: true, ...result });
+      }
+
       // POST or GET /api/browse-directory (Native Cross-Platform Folder Picker)
       if (pathname === '/api/browse-directory' && (method === 'POST' || method === 'GET')) {
         let promptText = 'Chọn thư mục dự án:';
         let defaultDir = '';
+        let isWsl = false;
+        let wslDistro = 'Ubuntu';
         try {
           if (method === 'POST') {
             const body = await getRequestBody(req);
             if (body && body.prompt) promptText = body.prompt;
             if (body && body.defaultDir) defaultDir = body.defaultDir;
+            if (body && body.isWsl) isWsl = !!body.isWsl;
+            if (body && body.wslDistro) wslDistro = body.wslDistro;
           }
         } catch (e) {}
 
-        const result = await dialogHelper.browseDirectory({ prompt: promptText, defaultDir });
+        const result = await dialogHelper.browseDirectory({ prompt: promptText, defaultDir, isWsl, wslDistro });
         return sendJson(res, 200, result);
       }
 
@@ -196,22 +207,29 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/browse-file' && (method === 'POST' || method === 'GET')) {
         let promptText = 'Chọn file script (.sh, .ts, .js, .py):';
         let defaultDir = '';
+        let isWsl = false;
+        let wslDistro = 'Ubuntu';
         try {
           if (method === 'POST') {
             const body = await getRequestBody(req);
             if (body && body.prompt) promptText = body.prompt;
             if (body && body.defaultDir) defaultDir = body.defaultDir;
+            if (body && body.isWsl) isWsl = !!body.isWsl;
+            if (body && body.wslDistro) wslDistro = body.wslDistro;
           }
         } catch (e) {}
 
-        const result = await dialogHelper.browseFile({ prompt: promptText, defaultDir });
+        const result = await dialogHelper.browseFile({ prompt: promptText, defaultDir, isWsl, wslDistro });
         return sendJson(res, 200, result);
       }
 
       // POST /api/inspect-directory (Inspect folder for .env, .env.example, package.json)
       if (pathname === '/api/inspect-directory' && method === 'POST') {
         const body = await getRequestBody(req);
-        const result = envManager.inspectDirectory(body.cwd || body.dirPath || body.path);
+        const result = await envManager.inspectDirectory(body.cwd || body.dirPath || body.path, {
+          isWsl: !!body.isWsl,
+          wslDistro: body.wslDistro || 'Ubuntu'
+        });
         return sendJson(res, 200, result);
       }
 

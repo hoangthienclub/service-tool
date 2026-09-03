@@ -82,9 +82,17 @@ class DialogHelper {
 
     // 2. Windows Native (win32)
     if (process.platform === 'win32') {
+      const wslHelper = require('./wsl-helper');
+      let initialDir = defaultDir;
+      if (options.isWsl) {
+        if (!initialDir || initialDir.startsWith('/') || initialDir.startsWith('~')) {
+          initialDir = wslHelper.resolveWslPathToWindows(initialDir || '/home', options.wslDistro || 'Ubuntu');
+        }
+      }
+
       return new Promise((resolve) => {
         const cleanPrompt = promptText.replace(/["'`]/g, '');
-        const cleanDir = (defaultDir && fs.existsSync(defaultDir)) ? defaultDir.replace(/"/g, '`"') : '';
+        const cleanDir = (initialDir && fs.existsSync(initialDir)) ? initialDir.replace(/"/g, '`"') : '';
         
         const psScript = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -106,8 +114,19 @@ if ($res -eq [System.Windows.Forms.DialogResult]::OK) {
           if (err || !stdout) return resolve({ success: false, cancelled: true });
           const selected = stdout.trim().replace(/[\r\n]+/g, '');
           if (!selected) return resolve({ success: false, cancelled: true });
-          const normalized = selected.replace(/\\/g, '/');
-          return resolve({ success: true, path: normalized });
+          
+          let normalized = selected.replace(/\\/g, '/');
+          let wslPath = normalized;
+          if (options.isWsl || normalized.includes('wsl.localhost') || normalized.includes('wsl$')) {
+            wslPath = wslHelper.resolveWindowsPathToWsl(selected);
+          }
+
+          return resolve({
+            success: true,
+            path: options.isWsl ? wslPath : normalized,
+            rawWindowsPath: normalized,
+            wslPath: wslPath
+          });
         });
       });
     }
