@@ -5,6 +5,7 @@ const url = require('url');
 const envManager = require('./services/env-manager');
 const processManager = require('./services/process-manager');
 const taskRunner = require('./services/task-runner');
+const dialogHelper = require('./services/dialog-helper');
 
 const PORT = parseInt(process.env.PORT || '48899', 10);
 const DIST_DIR = path.resolve(__dirname, '../dist');
@@ -175,37 +176,23 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true, ...config });
       }
 
-      // POST or GET /api/browse-directory (Native macOS Finder Folder Picker)
+      // POST or GET /api/browse-directory (Native Cross-Platform Folder Picker)
       if (pathname === '/api/browse-directory' && (method === 'POST' || method === 'GET')) {
         let promptText = 'Chọn thư mục dự án:';
+        let defaultDir = '';
         try {
           if (method === 'POST') {
             const body = await getRequestBody(req);
             if (body && body.prompt) promptText = body.prompt;
+            if (body && body.defaultDir) defaultDir = body.defaultDir;
           }
         } catch (e) {}
 
-        if (process.platform === 'darwin') {
-          const { exec } = require('child_process');
-          const script = `osascript -e 'try' -e 'set folderPath to POSIX path of (choose folder with prompt "${promptText.replace(/"/g, '\\"')}")' -e 'return folderPath' -e 'on error' -e 'return ""' -e 'end try'`;
-          
-          exec(script, (err, stdout) => {
-            if (err || !stdout) {
-              return sendJson(res, 200, { success: false, cancelled: true });
-            }
-            const selectedPath = stdout.trim().replace(/\/+$/, '');
-            if (!selectedPath) {
-              return sendJson(res, 200, { success: false, cancelled: true });
-            }
-            return sendJson(res, 200, { success: true, path: selectedPath });
-          });
-          return;
-        } else {
-          return sendJson(res, 200, { success: false, error: 'Platform not supported' });
-        }
+        const result = await dialogHelper.browseDirectory({ prompt: promptText, defaultDir });
+        return sendJson(res, 200, result);
       }
 
-      // POST or GET /api/browse-file (Native macOS Finder File Picker)
+      // POST or GET /api/browse-file (Native Cross-Platform File Picker)
       if (pathname === '/api/browse-file' && (method === 'POST' || method === 'GET')) {
         let promptText = 'Chọn file script (.sh, .ts, .js, .py):';
         let defaultDir = '';
@@ -217,49 +204,8 @@ const server = http.createServer(async (req, res) => {
           }
         } catch (e) {}
 
-        if (process.platform === 'darwin') {
-          const { exec } = require('child_process');
-          let script = `osascript -e 'try' -e 'set filePath to POSIX path of (choose file with prompt "${promptText.replace(/"/g, '\\"')}")' -e 'return filePath' -e 'on error' -e 'return ""' -e 'end try'`;
-          if (defaultDir && fs.existsSync(defaultDir)) {
-            script = `osascript -e 'try' -e 'set defaultFolder to POSIX file "${defaultDir.replace(/"/g, '\\"')}"' -e 'set filePath to POSIX path of (choose file default location defaultFolder with prompt "${promptText.replace(/"/g, '\\"')}")' -e 'return filePath' -e 'on error' -e 'return ""' -e 'end try'`;
-          }
-          
-          exec(script, (err, stdout) => {
-            if (err || !stdout) {
-              return sendJson(res, 200, { success: false, cancelled: true });
-            }
-            const selectedPath = stdout.trim();
-            if (!selectedPath) {
-              return sendJson(res, 200, { success: false, cancelled: true });
-            }
-            const filename = path.basename(selectedPath);
-            const ext = path.extname(selectedPath).toLowerCase();
-            let defaultRunner = 'bash';
-            if (ext === '.js' || ext === '.mjs') defaultRunner = 'node';
-            else if (ext === '.ts') defaultRunner = 'pnpm ts-node';
-            else if (ext === '.py') defaultRunner = 'python3';
-            else if (ext === '.sh') defaultRunner = 'bash';
-
-            let relPath = selectedPath;
-            if (defaultDir) {
-              const rel = path.relative(defaultDir, selectedPath);
-              relPath = rel.startsWith('.') ? rel : `./${rel}`;
-            }
-
-            return sendJson(res, 200, {
-              success: true,
-              path: selectedPath,
-              filename,
-              relativePath: relPath,
-              ext,
-              defaultRunner,
-              suggestedCommand: `${defaultRunner} ${relPath}`
-            });
-          });
-          return;
-        } else {
-          return sendJson(res, 200, { success: false, error: 'Platform not supported' });
-        }
+        const result = await dialogHelper.browseFile({ prompt: promptText, defaultDir });
+        return sendJson(res, 200, result);
       }
 
       // POST /api/inspect-directory (Inspect folder for .env, .env.example, package.json)
