@@ -357,6 +357,16 @@ class EnvManager {
     return result;
   }
 
+  parseEnvFile(filePath) {
+    try {
+      if (!filePath || !fs.existsSync(filePath)) return {};
+      const content = fs.readFileSync(filePath, 'utf8');
+      return this.parseEnvContent(content);
+    } catch (e) {
+      return {};
+    }
+  }
+
   async inspectDirectory(dirPath, options = {}) {
     if (!dirPath || typeof dirPath !== 'string') {
       return { success: false, error: 'Đường dẫn không hợp lệ', exists: false };
@@ -1218,6 +1228,10 @@ class EnvManager {
     const activeKey = (profileKey || this.userConfig.activeGlobalProfile || 'default').toLowerCase();
     const profiles = this.getGlobalProfiles();
     return profiles[activeKey]?.env || profiles.default?.env || {};
+  }
+
+  getEffectiveGlobalEnv(profileKey) {
+    return this.getGlobalEnv(profileKey);
   }
 
   applyGlobalEnv(globalVars, profileKey) {
