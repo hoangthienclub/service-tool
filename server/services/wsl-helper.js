@@ -14,10 +14,11 @@ class WslHelper {
   isWslAvailable() {
     if (process.platform === 'win32') {
       try {
-        execSync('wsl.exe --status', { stdio: 'ignore', timeout: 2000 });
+        execSync('where.exe wsl.exe', { stdio: 'ignore', timeout: 2000 });
         return true;
       } catch (e) {
-        return false;
+        const sys32Wsl = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'wsl.exe');
+        return fs.existsSync(sys32Wsl);
       }
     }
     if (process.platform === 'linux') {
@@ -241,6 +242,79 @@ class WslHelper {
             suggestedArgs: pkgInfo?.args || 'run dev',
             name: pkg?.name || path.basename(cleanLinuxPath)
           });
+        });
+      });
+    });
+  }
+
+  /**
+   * List subdirectories inside WSL2 Linux path
+   */
+  async listWslDirectories(distro = 'Ubuntu', requestedPath = '/home') {
+    let cleanPath = (requestedPath || '/home').trim().replace(/\\/g, '/');
+    if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
+    if (cleanPath.length > 1 && cleanPath.endsWith('/')) {
+      cleanPath = cleanPath.slice(0, -1);
+    }
+
+    const parentOfCurrent = cleanPath === '/' ? '/' : path.posix.dirname(cleanPath);
+
+    // 1. Try UNC path if running on Windows Host
+    const uncPath = this.resolveWslPathToWindows(cleanPath, distro);
+    if (uncPath && fs.existsSync(uncPath)) {
+      try {
+        const entries = fs.readdirSync(uncPath, { withFileTypes: true });
+        const dirs = entries
+          .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+          .map(e => ({
+            name: e.name,
+            path: cleanPath === '/' ? `/${e.name}` : `${cleanPath}/${e.name}`,
+            hasPackageJson: fs.existsSync(path.join(uncPath, e.name, 'package.json')),
+            hasEnv: fs.existsSync(path.join(uncPath, e.name, '.env'))
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        return {
+          success: true,
+          distro,
+          currentPath: cleanPath,
+          parentPath: parentOfCurrent,
+          directories: dirs
+        };
+      } catch (e) {}
+    }
+
+    // 2. Fallback via wsl.exe command
+    return new Promise((resolve) => {
+      const listCmd = `wsl.exe -d ${distro} --cd "${cleanPath}" sh -c "for d in */; do if [ -d \\\"\\$d\\\" ]; then name=\\\"\${d%/}\\\"; hasPkg=\\\"false\\\"; hasEnv=\\\"false\\\"; [ -f \\\"\\$d/package.json\\\" ] && hasPkg=\\\"true\\\"; [ -f \\\"\\$d/.env\\\" ] && hasEnv=\\\"true\\\"; echo \\\"\\$name|\\$hasPkg|\\$hasEnv\\\"; fi; done 2>/dev/null || true"`;
+      exec(listCmd, { timeout: 5000 }, (err, stdout) => {
+        if (err || !stdout) {
+          return resolve({
+            success: true,
+            distro,
+            currentPath: cleanPath,
+            parentPath: parentOfCurrent,
+            directories: []
+          });
+        }
+
+        const lines = stdout.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
+        const dirs = lines.map(line => {
+          const [name, hasPkg, hasEnv] = line.split('|');
+          return {
+            name,
+            path: cleanPath === '/' ? `/${name}` : `${cleanPath}/${name}`,
+            hasPackageJson: hasPkg === 'true',
+            hasEnv: hasEnv === 'true'
+          };
+        }).filter(d => d.name && d.name !== '*' && !d.name.startsWith('.'));
+
+        return resolve({
+          success: true,
+          distro,
+          currentPath: cleanPath,
+          parentPath: parentOfCurrent,
+          directories: dirs
         });
       });
     });

@@ -158,6 +158,27 @@
         }
       }, [selectedServiceId]);
 
+      const fetchServiceLogs = async (serviceId) => {
+        if (!serviceId) return;
+        try {
+          const res = await fetch(`/api/services/${encodeURIComponent(serviceId)}/logs`);
+          const data = await res.json();
+          if (data.success && Array.isArray(data.logs)) {
+            setLogsMap(prev => ({
+              ...prev,
+              [serviceId]: data.logs
+            }));
+          }
+        } catch (e) {}
+      };
+
+      const handleTogglePopout = (svc) => {
+        setPopoutService(svc);
+        if (svc?.id && (!logsMap[svc.id] || logsMap[svc.id].length === 0)) {
+          fetchServiceLogs(svc.id);
+        }
+      };
+
       // Connect SSE
       useEffect(() => {
         fetchServices();
@@ -172,6 +193,17 @@
               statusInfo: data.statuses[s.id] || { status: 'STOPPED' }
             }));
             setServices(combined);
+          }
+          if (data.logs && typeof data.logs === 'object') {
+            setLogsMap((prev) => {
+              const next = { ...prev };
+              for (const [id, entries] of Object.entries(data.logs)) {
+                if (!next[id] || next[id].length === 0) {
+                  next[id] = entries;
+                }
+              }
+              return next;
+            });
           }
         });
 
@@ -1134,12 +1166,13 @@
                                 onClearLogs={handleClearLogs}
                                 onOpenEnvModal={setEnvModalService}
                                 onChangeProfile={handleChangeProfile}
-                                onTogglePopout={setPopoutService}
+                                onTogglePopout={handleTogglePopout}
                                 onRunServiceTask={handleRunServiceTask}
                                 onKillPort={handleKillPort}
                                 onSelectConsole={(id) => {
                                   setSelectedServiceId(id);
                                   setMonitorViewType('console');
+                                  if (!logsMap[id] || logsMap[id].length === 0) fetchServiceLogs(id);
                                 }}
                               />
                             ))}
@@ -4493,6 +4526,11 @@
       const [wslDistro, setWslDistro] = useState(service?.wslDistro || 'Ubuntu');
       const [availableDistros, setAvailableDistros] = useState(['Ubuntu']);
       const [isWslAvailable, setIsWslAvailable] = useState(false);
+      const [showWslExplorer, setShowWslExplorer] = useState(false);
+      const [wslCurrentPath, setWslCurrentPath] = useState('/home');
+      const [wslDirList, setWslDirList] = useState([]);
+      const [wslLoading, setWslLoading] = useState(false);
+      const [wslError, setWslError] = useState('');
       const [detectedEnv, setDetectedEnv] = useState(service?.profiles?.default?.env || null);
       const [detectedEnvSource, setDetectedEnvSource] = useState('');
       const [packageScripts, setPackageScripts] = useState([]);
@@ -4521,6 +4559,27 @@
           })
           .catch(e => {});
       }, []);
+
+      const fetchWslDirs = async (targetPath, targetDistro) => {
+        const p = targetPath || wslCurrentPath || '/home';
+        const d = targetDistro || wslDistro || 'Ubuntu';
+        setWslLoading(true);
+        setWslError('');
+        try {
+          const res = await fetch(`/api/wsl/list-dirs?distro=${encodeURIComponent(d)}&path=${encodeURIComponent(p)}`);
+          const data = await res.json();
+          if (data.success) {
+            setWslCurrentPath(data.currentPath);
+            setWslDirList(data.directories || []);
+          } else {
+            setWslError(data.error || 'Không thể đọc thư mục WSL');
+          }
+        } catch (err) {
+          setWslError(err.message);
+        } finally {
+          setWslLoading(false);
+        }
+      };
 
       const handleInspectCwd = async (folderPath, overrideIsWsl, overrideDistro) => {
         if (!folderPath || typeof folderPath !== 'string') return;
@@ -4761,27 +4820,206 @@
                     </span>
                   )}
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   <input
                     type="text"
                     placeholder={isWsl ? "ví dụ: /home/username/projects/my-service hoặc ~/my-service" : "ví dụ: /Users/thientran/projects/my-service hoặc C:/projects/my-service"}
                     value={cwd}
                     onChange={(e) => {
-                      setCwd(e.target.value);
-                      handleInspectCwd(e.target.value);
+                      const val = e.target.value;
+                      setCwd(val);
+                      const clean = val.trim();
+                      let targetIsWsl = isWsl;
+                      if (clean.startsWith('/home') || clean.startsWith('~') || clean.startsWith('\\\\wsl') || clean.startsWith('//wsl')) {
+                        if (!isWsl) {
+                          targetIsWsl = true;
+                          setIsWsl(true);
+                        }
+                      }
+                      handleInspectCwd(val, targetIsWsl, wslDistro);
                     }}
                     className="w-full bg-[#0b101c] border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-cyan-200 focus:outline-none focus:border-cyan-500"
                   />
-                  <button
-                    type="button"
-                    onClick={handleBrowseFolder}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold font-mono whitespace-nowrap flex items-center space-x-1.5 transition-all shadow-md shadow-indigo-900/30 flex-shrink-0"
-                    title={isWsl ? "Mở hộp thoại chọn thư mục WSL2" : "Mở hộp thoại chọn thư mục"}
-                  >
-                    <span>📂</span>
-                    <span>{isWsl ? 'Chọn Thư Mục WSL...' : 'Chọn Thư Mục...'}</span>
-                  </button>
+
+                  <div className="flex items-center space-x-1.5 flex-shrink-0">
+                    {isWsl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !showWslExplorer;
+                          setShowWslExplorer(next);
+                          if (next) fetchWslDirs(cwd || '/home', wslDistro);
+                        }}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold font-mono whitespace-nowrap flex items-center space-x-1.5 transition-all shadow-md ${
+                          showWslExplorer
+                            ? 'bg-cyan-600 text-white shadow-cyan-900/40 ring-1 ring-cyan-400'
+                            : 'bg-[#121c33] hover:bg-cyan-900/60 text-cyan-300 hover:text-white border border-cyan-700/50'
+                        }`}
+                        title="Duyệt danh sách thư mục trực tiếp bên trong WSL2"
+                      >
+                        <span>🐧</span>
+                        <span>{showWslExplorer ? 'Đóng WSL' : 'Duyệt WSL...'}</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleBrowseFolder}
+                      className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold font-mono whitespace-nowrap flex items-center space-x-1.5 transition-all shadow-md shadow-indigo-900/30"
+                      title={isWsl ? "Mở hộp thoại Windows để chọn thư mục" : "Mở hộp thoại để chọn thư mục"}
+                    >
+                      <span>📂</span>
+                      <span>{isWsl ? 'Hộp Thoại OS...' : 'Chọn Thư Mục...'}</span>
+                    </button>
+                  </div>
                 </div>
+
+                {/* WSL In-App Folder Explorer Panel */}
+                {isWsl && showWslExplorer && (
+                  <div className="mt-2.5 p-3.5 bg-[#070b16] border border-cyan-500/40 rounded-xl space-y-3 animate-in fade-in zoom-in-95">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-base">🐧</span>
+                        <span className="text-xs font-bold text-cyan-300">
+                          WSL Explorer ({wslDistro})
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowWslExplorer(false)}
+                        className="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800"
+                      >
+                        ✕ Đóng
+                      </button>
+                    </div>
+
+                    {/* Quick navigation shortcuts */}
+                    <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-[11px] font-mono">
+                      <span className="text-slate-500">Nhanh:</span>
+                      {['/home', '/var/www', '/mnt/c', '/'].map(shortcut => (
+                        <button
+                          key={shortcut}
+                          type="button"
+                          onClick={() => fetchWslDirs(shortcut, wslDistro)}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-cyan-900/60 text-slate-300 hover:text-cyan-200 border border-slate-700 transition-colors"
+                        >
+                          {shortcut}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Current Path Bar & Up Button */}
+                    <div className="flex items-center space-x-1.5 bg-[#04060d] p-1.5 rounded-lg border border-slate-800 text-xs font-mono">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const parts = wslCurrentPath.split('/').filter(Boolean);
+                          parts.pop();
+                          const parent = '/' + parts.join('/');
+                          fetchWslDirs(parent || '/', wslDistro);
+                        }}
+                        disabled={wslCurrentPath === '/'}
+                        className="px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white rounded font-bold"
+                        title="Lên thư mục cha"
+                      >
+                        ⬆
+                      </button>
+                      <input
+                        type="text"
+                        value={wslCurrentPath}
+                        onChange={(e) => setWslCurrentPath(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            fetchWslDirs(wslCurrentPath, wslDistro);
+                          }
+                        }}
+                        className="flex-1 bg-transparent text-cyan-200 focus:outline-none px-1 text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fetchWslDirs(wslCurrentPath, wslDistro)}
+                        className="px-2 py-1 bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] font-bold rounded"
+                      >
+                        Đi ➜
+                      </button>
+                    </div>
+
+                    {/* Directory Items List */}
+                    <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
+                      {wslLoading ? (
+                        <div className="py-6 text-center text-xs text-slate-400 font-mono flex items-center justify-center space-x-2">
+                          <span className="animate-spin">⚙️</span>
+                          <span>Đang đọc danh sách thư mục WSL...</span>
+                        </div>
+                      ) : wslError ? (
+                        <div className="p-2 text-xs text-rose-300 bg-rose-950/40 rounded border border-rose-800">
+                          {wslError}
+                        </div>
+                      ) : wslDirList.length === 0 ? (
+                        <div className="py-4 text-center text-xs text-slate-500 font-mono">
+                          (Thư mục trống hoặc không có thư mục con)
+                        </div>
+                      ) : (
+                        wslDirList.map((dir) => (
+                          <div
+                            key={dir.path}
+                            className="flex items-center justify-between p-2 rounded-lg bg-[#0a0f1d] hover:bg-[#11192e] border border-slate-800/80 transition-colors group cursor-pointer"
+                            onClick={() => fetchWslDirs(dir.path, wslDistro)}
+                          >
+                            <div className="flex items-center space-x-2 min-w-0">
+                              <span className="text-amber-400">📁</span>
+                              <span className="font-mono text-xs font-semibold text-slate-200 group-hover:text-white truncate">
+                                {dir.name}
+                              </span>
+                              {dir.hasPackageJson && (
+                                <span className="px-1.5 py-0.2 bg-emerald-950 text-emerald-300 border border-emerald-800 rounded text-[9px] font-mono">
+                                  package.json
+                                </span>
+                              )}
+                              {dir.hasEnv && (
+                                <span className="px-1.5 py-0.2 bg-cyan-950 text-cyan-300 border border-cyan-800 rounded text-[9px] font-mono">
+                                  .env
+                                </span>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCwd(dir.path);
+                                setShowWslExplorer(false);
+                                handleInspectCwd(dir.path, true, wslDistro);
+                              }}
+                              className="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-mono font-bold whitespace-nowrap opacity-90 group-hover:opacity-100 transition-opacity"
+                            >
+                              Chọn Thư Mục Này ✔
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Bottom select current path button */}
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400 font-mono truncate max-w-[280px]">
+                        Đang ở: <span className="text-cyan-300">{wslCurrentPath}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCwd(wslCurrentPath);
+                          setShowWslExplorer(false);
+                          handleInspectCwd(wslCurrentPath, true, wslDistro);
+                        }}
+                        className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold font-mono transition-all"
+                      >
+                        Chọn "{wslCurrentPath}"
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Auto-detected .env / .env.example banner */}
                 {inspecting && (

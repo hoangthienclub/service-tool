@@ -97,10 +97,11 @@ const server = http.createServer(async (req, res) => {
 
     sseClients.add(res);
 
-    // Send initial status immediately
+    // Send initial status and historical logs immediately
     res.write(`event: initial-state\ndata: ${JSON.stringify({
       statuses: processManager.getAllStatuses(),
-      services: envManager.getServices()
+      services: envManager.getServices(),
+      logs: processManager.getAllLogs(300)
     })}\n\n`);
 
     req.on('close', () => {
@@ -181,6 +182,15 @@ const server = http.createServer(async (req, res) => {
         const wslHelper = require('./services/wsl-helper');
         const result = await wslHelper.getDistros();
         return sendJson(res, 200, { success: true, ...result });
+      }
+
+      // GET /api/wsl/list-dirs (List subdirectories in WSL path)
+      if (pathname === '/api/wsl/list-dirs' && method === 'GET') {
+        const wslHelper = require('./services/wsl-helper');
+        const distro = parsedUrl.query.distro || 'Ubuntu';
+        const requestedPath = parsedUrl.query.path || '/home';
+        const result = await wslHelper.listWslDirectories(distro, requestedPath);
+        return sendJson(res, 200, result);
       }
 
       // POST or GET /api/browse-directory (Native Cross-Platform Folder Picker)

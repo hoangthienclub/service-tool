@@ -86,6 +86,14 @@ class ProcessManager extends EventEmitter {
     return this.logBuffers.get(serviceId);
   }
 
+  getAllLogs(maxLinesPerService = 300) {
+    const result = {};
+    for (const [id, buffer] of this.logBuffers.entries()) {
+      result[id] = buffer.slice(-maxLinesPerService);
+    }
+    return result;
+  }
+
   appendLog(serviceId, text, type = 'stdout') {
     const buffer = this.getLogBuffer(serviceId);
     const logEntry = {
@@ -138,7 +146,7 @@ class ProcessManager extends EventEmitter {
     }
 
     const current = this.processes.get(serviceId);
-    if (current && (current.status === 'RUNNING' || current.status === 'STARTING')) {
+    if (current && current.pid && current.status === 'RUNNING') {
       return this.getStatus(serviceId);
     }
 
@@ -153,15 +161,21 @@ class ProcessManager extends EventEmitter {
     });
     this.emit('status-change', { serviceId, status: 'STARTING', pid: null });
 
-    this.appendLog(serviceId, `\x1b[36m[Dashboard] Đang khởi động ${svc.name} (Profile: ${svc.activeProfile})...\x1b[0m\n`, 'system');
+    this.appendLog(serviceId, `\x1b[36m[Dashboard] Đang chuẩn bị khởi động ${svc.name} (Profile: ${svc.activeProfile})...\x1b[0m\n`, 'system');
 
     const env = envManager.getEffectiveEnvForService(serviceId);
 
     // Auto-kill old occupying port before starting to avoid EADDRINUSE
+    // Prioritize runtime env.PORT over stale metadata svc.port to never kill another service!
     const portsToKill = new Set();
-    if (svc.port) portsToKill.add(svc.port);
-    if (env?.PORT) portsToKill.add(env.PORT);
-    if (env?.GRPC_PORT) portsToKill.add(env.GRPC_PORT);
+    const effectivePort = env?.PORT ? parseInt(env.PORT, 10) : (svc.port ? parseInt(svc.port, 10) : null);
+    if (effectivePort && !isNaN(effectivePort) && effectivePort > 1024) {
+      portsToKill.add(effectivePort);
+    }
+    if (env?.GRPC_PORT) {
+      const grpc = parseInt(env.GRPC_PORT, 10);
+      if (!isNaN(grpc) && grpc > 1024) portsToKill.add(grpc);
+    }
 
     for (const p of portsToKill) {
       await this.killPort(p);
@@ -188,8 +202,11 @@ class ProcessManager extends EventEmitter {
       let spawnShell = true;
 
       if (svc.isWsl && process.platform === 'win32') {
+        const wslHelper = require('./wsl-helper');
         const distro = svc.wslDistro || 'Ubuntu';
-        const wslPath = svc.wslPath || svc.cwd || '~';
+        let rawPath = svc.wslPath || svc.cwd || '~';
+        let linuxPath = wslHelper.resolveWindowsPathToWsl(rawPath);
+        if (!linuxPath || linuxPath === '.') linuxPath = '~';
 
         const envExports = Object.entries(spawnEnv)
           .filter(([k]) => !['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PSMODULEPATH'].includes(k.toUpperCase()))
@@ -197,13 +214,15 @@ class ProcessManager extends EventEmitter {
           .join('; ');
 
         const runCmd = `${svc.script} ${Array.isArray(svc.args) ? svc.args.join(' ') : (svc.args || '')}`;
-        const fullBashScript = envExports ? `${envExports}; ${runCmd}` : runCmd;
+        // Fallback PATH for node/nvm/pnpm/yarn in case .bashrc returns early on non-interactive
+        const envInit = `export PATH=$PATH:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -n 1)/bin:$HOME/.local/share/pnpm:$HOME/.yarn/bin:$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin`;
+        const fullBashScript = [envInit, envExports, runCmd].filter(Boolean).join('; ');
 
         spawnCmd = 'wsl.exe';
-        spawnArgs = ['-d', distro, '--cd', wslPath, 'bash', '-c', fullBashScript];
+        spawnArgs = ['-d', distro, '--cd', linuxPath, 'bash', '-l', '-c', fullBashScript];
         spawnCwd = undefined;
         spawnShell = false;
-        this.appendLog(serviceId, `\x1b[35m[WSL2] Khởi chạy trong Distro ${distro} tại ${wslPath}\x1b[0m\n`, 'system');
+        this.appendLog(serviceId, `\x1b[35m[WSL2] Khởi chạy trong Distro ${distro} tại ${linuxPath} (Login Shell)\x1b[0m\n`, 'system');
       }
 
       const child = spawn(spawnCmd, spawnArgs, {
@@ -212,6 +231,8 @@ class ProcessManager extends EventEmitter {
         shell: spawnShell,
         stdio: ['pipe', 'pipe', 'pipe']
       });
+
+      this.appendLog(serviceId, `\x1b[32m[Dashboard] Đang thực thi: ${spawnCmd} ${Array.isArray(spawnArgs) ? spawnArgs.join(' ') : spawnArgs} (PID: ${child.pid})\x1b[0m\n`, 'system');
 
       const procInfo = {
         process: child,
