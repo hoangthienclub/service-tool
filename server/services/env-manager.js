@@ -619,6 +619,33 @@ class EnvManager {
       updated.profiles = { ...updated.profiles, ...serviceData.profiles };
     }
 
+    if (serviceData.defaultEnv !== undefined && typeof serviceData.defaultEnv === 'object') {
+      if (!updated.profiles) updated.profiles = {};
+      const defKey = updated.defaultProfile || 'default';
+      if (!updated.profiles[defKey]) {
+        updated.profiles[defKey] = { name: 'Default Environment', env: {} };
+      }
+      updated.profiles[defKey].env = { ...serviceData.defaultEnv };
+
+      if (!this.userConfig.customEnvOverrides[serviceId]) {
+        this.userConfig.customEnvOverrides[serviceId] = {};
+      }
+      this.userConfig.customEnvOverrides[serviceId][defKey] = { ...serviceData.defaultEnv };
+
+      if (serviceData.port === undefined || serviceData.port === null || serviceData.port === '') {
+        const portCandidates = ['PORT', 'NEST_API_PORT', 'NEST_SOCKET_PORT', 'SOCKET_PORT', 'WS_PORT', 'HTTP_PORT', 'APP_PORT', 'SERVER_PORT', 'API_PORT', 'VITE_PORT', 'PORT_HTTP', 'GRPC_PORT'];
+        for (const pk of portCandidates) {
+          if (serviceData.defaultEnv[pk]) {
+            const p = parseInt(serviceData.defaultEnv[pk], 10);
+            if (!isNaN(p) && p > 0) {
+              updated.port = p;
+              break;
+            }
+          }
+        }
+      }
+    }
+
     const newList = [...currentList];
     newList[index] = updated;
     this.userConfig.customServices = newList;
@@ -1014,8 +1041,9 @@ class EnvManager {
     return this.getServices();
   }
 
-  setEnvOverrides(serviceId, overrides) {
-    const activeProfileKey = this.userConfig.activeProfiles[serviceId] || 'local';
+  setEnvOverrides(serviceId, overrides, profileKey) {
+    const rawService = this.getRawServicesList().find(s => s.id === serviceId);
+    const activeProfileKey = profileKey || this.userConfig.activeProfiles[serviceId] || rawService?.activeProfile || rawService?.defaultProfile || 'default';
     
     if (!this.userConfig.customEnvOverrides[serviceId]) {
       this.userConfig.customEnvOverrides[serviceId] = {};
@@ -1026,10 +1054,34 @@ class EnvManager {
       this.userConfig.customEnvOverrides[serviceId] = {};
     }
 
-    this.userConfig.customEnvOverrides[serviceId][activeProfileKey] = overrides;
+    this.userConfig.customEnvOverrides[serviceId][activeProfileKey] = { ...overrides };
 
     if (this.userConfig.customProfiles[serviceId]?.[activeProfileKey]) {
-      this.userConfig.customProfiles[serviceId][activeProfileKey].env = overrides;
+      this.userConfig.customProfiles[serviceId][activeProfileKey].env = { ...overrides };
+    }
+
+    // Update customService definition if defined in customServices
+    if (this.userConfig.customServices && Array.isArray(this.userConfig.customServices)) {
+      const customSvc = this.userConfig.customServices.find(s => s.id === serviceId);
+      if (customSvc) {
+        if (!customSvc.profiles) customSvc.profiles = {};
+        if (!customSvc.profiles[activeProfileKey]) {
+          customSvc.profiles[activeProfileKey] = { name: activeProfileKey, env: {} };
+        }
+        customSvc.profiles[activeProfileKey].env = { ...overrides };
+
+        // Auto update port if PORT candidate is in overrides
+        const portCandidates = ['PORT', 'NEST_API_PORT', 'NEST_SOCKET_PORT', 'SOCKET_PORT', 'WS_PORT', 'HTTP_PORT', 'APP_PORT', 'SERVER_PORT', 'API_PORT', 'VITE_PORT', 'PORT_HTTP', 'GRPC_PORT'];
+        for (const pk of portCandidates) {
+          if (overrides[pk]) {
+            const p = parseInt(overrides[pk], 10);
+            if (!isNaN(p) && p > 0) {
+              customSvc.port = p;
+              break;
+            }
+          }
+        }
+      }
     }
 
     this.saveUserConfig();

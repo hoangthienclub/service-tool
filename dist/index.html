@@ -337,11 +337,11 @@
         return data;
       };
 
-      const handleSaveEnvOverrides = async (id, overrides) => {
+      const handleSaveEnvOverrides = async (id, overrides, profileKey) => {
         const res = await fetch(`/api/services/${id}/env-overrides`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ overrides })
+          body: JSON.stringify({ overrides, profileKey })
         });
         const data = await res.json();
         if (data.success && data.service) {
@@ -3726,7 +3726,8 @@
         for (const item of envPairs) {
           overrides[item.key] = item.value;
         }
-        await onSaveOverrides(service.id, overrides);
+        const activeProf = service.activeProfile || service.defaultProfile || 'default';
+        await onSaveOverrides(service.id, overrides, activeProf);
         setSavedSuccess(true);
         setTimeout(() => {
           setSavedSuccess(false);

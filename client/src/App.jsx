@@ -144,11 +144,11 @@ export default function App() {
     });
   };
 
-  const handleSaveEnvOverrides = async (id, overrides) => {
+  const handleSaveEnvOverrides = async (id, overrides, profileKey) => {
     await fetch(`/api/services/${id}/env-overrides`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ overrides })
+      body: JSON.stringify({ overrides, profileKey })
     });
   };
 

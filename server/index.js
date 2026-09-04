@@ -402,7 +402,7 @@ const server = http.createServer(async (req, res) => {
       if (matchOverrides && method === 'POST') {
         const serviceId = matchOverrides[1];
         const body = await getRequestBody(req);
-        const updated = envManager.setEnvOverrides(serviceId, body.overrides || {});
+        const updated = envManager.setEnvOverrides(serviceId, body.overrides || {}, body.profileKey);
         sendSseEvent('service-updated', updated);
         return sendJson(res, 200, { success: true, service: updated });
       }
