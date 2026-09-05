@@ -426,7 +426,22 @@
         }
       };
 
+      const handleRestartGroup = async (groupName) => {
+        setServices((prev) =>
+          prev.map((s) => ((s.group || s.category || '').toUpperCase() === groupName.toUpperCase() ? { ...s, statusInfo: { ...s.statusInfo, status: 'RESTARTING' } } : s))
+        );
+        try {
+          await fetch(`/api/groups/${encodeURIComponent(groupName)}/restart`, { method: 'POST' });
+          setTimeout(fetchServices, 1200);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
       const handleStartAll = async () => {
+        if (activeCategory && activeCategory !== 'ALL') {
+          return handleStartGroup(activeCategory);
+        }
         setServices((prev) => prev.map((s) => ({ ...s, statusInfo: { ...s.statusInfo, status: 'STARTING' } })));
         try {
           await fetch('/api/all/start', { method: 'POST' });
@@ -437,6 +452,9 @@
       };
 
       const handleStopAll = async () => {
+        if (activeCategory && activeCategory !== 'ALL') {
+          return handleStopGroup(activeCategory);
+        }
         setServices((prev) => prev.map((s) => ({ ...s, statusInfo: { ...s.statusInfo, status: 'STOPPING' } })));
         try {
           await fetch('/api/all/stop', { method: 'POST' });
@@ -447,21 +465,12 @@
       };
 
       const handleRestartAll = async () => {
+        if (activeCategory && activeCategory !== 'ALL') {
+          return handleRestartGroup(activeCategory);
+        }
         setServices((prev) => prev.map((s) => ({ ...s, statusInfo: { ...s.statusInfo, status: 'RESTARTING' } })));
         try {
           await fetch('/api/all/restart', { method: 'POST' });
-          setTimeout(fetchServices, 1200);
-        } catch (e) {
-          console.error(e);
-        }
-      };
-
-      const handleRestartGroup = async (groupName) => {
-        setServices((prev) =>
-          prev.map((s) => ((s.group || s.category || '').toUpperCase() === groupName.toUpperCase() ? { ...s, statusInfo: { ...s.statusInfo, status: 'RESTARTING' } } : s))
-        );
-        try {
-          await fetch(`/api/groups/${encodeURIComponent(groupName)}/restart`, { method: 'POST' });
           setTimeout(fetchServices, 1200);
         } catch (e) {
           console.error(e);
@@ -505,7 +514,29 @@
       };
 
       const handleKillAllPorts = async () => {
-        if (!confirm('Bạn có chắc chắn muốn giải phóng (Kill) toàn bộ port của tất cả microservices không?')) return;
+        const isGroup = activeCategory && activeCategory !== 'ALL';
+        const targetServices = isGroup
+          ? services.filter(s => (s.group || s.category || '').toUpperCase() === activeCategory)
+          : services;
+        const currentCatName = categories.find(c => (c.id || '').toUpperCase() === activeCategory)?.name || activeCategory;
+        const confirmMsg = isGroup
+          ? `Bạn có chắc chắn muốn giải phóng (Kill) port của các service trong nhóm "${currentCatName}" không?`
+          : 'Bạn có chắc chắn muốn giải phóng (Kill) toàn bộ port của tất cả microservices không?';
+        if (!confirm(confirmMsg)) return;
+
+        if (isGroup) {
+          setServices((prev) =>
+            prev.map((s) => ((s.group || s.category || '').toUpperCase() === activeCategory ? { ...s, statusInfo: { ...s.statusInfo, status: 'STOPPED', pid: null } } : s))
+          );
+          try {
+            await Promise.allSettled(targetServices.map(s => fetch(`/api/services/${encodeURIComponent(s.id)}/kill-port`, { method: 'POST' })));
+            fetchServices();
+          } catch (e) {
+            console.error(e);
+          }
+          return;
+        }
+
         setServices((prev) => prev.map((s) => ({ ...s, statusInfo: { ...s.statusInfo, status: 'STOPPED', pid: null } })));
         try {
           await fetch('/api/all/kill-ports', { method: 'POST' });
@@ -692,6 +723,11 @@
         const distinct = Array.from(new Set(filteredServices.map(s => (s.group || s.category || 'SERVICE').toUpperCase())));
         return distinct.length > 0 ? distinct : ['SERVICE'];
       }, [filteredServices, activeCategory]);
+
+      const activeCatObj = useMemo(() => {
+        return categories.find(c => (c.id || '').toUpperCase() === activeCategory);
+      }, [categories, activeCategory]);
+      const activeCategoryName = activeCategory === 'ALL' ? 'ALL' : (activeCatObj?.name || activeCategory);
 
       const runningCount = services.filter(s => s.statusInfo?.status === 'RUNNING').length;
       const selectedService = services.find(s => s.id === selectedServiceId) || services[0];
@@ -883,8 +919,20 @@
               <div className="flex items-center flex-shrink-0 min-w-0">
                 {viewMode === 'monitor' && (
                   <div className="flex items-center space-x-3 app-no-drag flex-shrink-0">
-                    {/* View Switcher: Grid vs Console (Icons Only) */}
+                    {/* View Switcher: Console vs Grid (Icons Only) */}
                     <div className="flex items-center bg-[#050811] p-1 rounded-xl border border-slate-800 shadow-inner">
+                      <button
+                        onClick={() => setMonitorViewType('console')}
+                        className={`p-1.5 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center ${
+                          monitorViewType === 'console'
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Chế độ Console Chi Tiết (Log View - Ưu tiên)"
+                      >
+                        <span className="text-sm">📊</span>
+                      </button>
+
                       <button
                         onClick={() => setMonitorViewType('grid')}
                         className={`p-1.5 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center ${
@@ -895,18 +943,6 @@
                         title="Chế độ Thẻ Lưới (Grid Cards)"
                       >
                         <span className="text-sm">🔲</span>
-                      </button>
-
-                      <button
-                        onClick={() => setMonitorViewType('console')}
-                        className={`p-1.5 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center ${
-                          monitorViewType === 'console'
-                            ? 'bg-blue-600 text-white shadow-md'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                        title="Chế độ Console Chi Tiết (Log View)"
-                      >
-                        <span className="text-sm">📊</span>
                       </button>
                     </div>
 
@@ -927,9 +963,11 @@
                             const running = grp === 'ALL'
                               ? services.filter(s => s.statusInfo?.status === 'RUNNING').length
                               : services.filter(s => (s.group || s.category || '').toUpperCase() === grp && s.statusInfo?.status === 'RUNNING').length;
+                            const catObj = categories.find(c => (c.id || '').toUpperCase() === grp);
+                            const displayName = grp === 'ALL' ? 'ALL' : (catObj?.name || grp);
                             return (
                               <option key={grp} value={grp} className="bg-[#0b101e] text-blue-400 font-bold">
-                                {grp} ({running}/{count})
+                                {displayName} ({running}/{count})
                               </option>
                             );
                           })}
@@ -1025,44 +1063,44 @@
                 <button
                   onClick={handleStartAll}
                   className="group flex items-center p-2 hover:px-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-all duration-200 shadow-md shadow-blue-900/30 overflow-hidden"
-                  title="Start All (Bắt đầu chạy toàn bộ microservices)"
+                  title={activeCategory !== 'ALL' ? `Start ${activeCategoryName} (Chỉ chạy các service trong nhóm)` : "Start All (Bắt đầu chạy toàn bộ microservices)"}
                 >
                   <svg className="w-3.5 h-3.5 fill-current flex-shrink-0" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
-                    Start All
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[160px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    {activeCategory !== 'ALL' ? `Start ${activeCategoryName}` : 'Start All'}
                   </span>
                 </button>
 
                 <button
                   onClick={handleRestartAll}
                   className="group flex items-center p-2 hover:px-3 bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600 hover:text-white text-xs font-bold rounded-lg transition-all duration-200 shadow-sm overflow-hidden"
-                  title="Restart All (Khởi động lại toàn bộ microservices)"
+                  title={activeCategory !== 'ALL' ? `Restart ${activeCategoryName} (Khởi động lại các service trong nhóm)` : "Restart All (Khởi động lại toàn bộ microservices)"}
                 >
                   <span className="text-sm leading-none flex-shrink-0">↺</span>
-                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
-                    Restart All
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[160px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    {activeCategory !== 'ALL' ? `Restart ${activeCategoryName}` : 'Restart All'}
                   </span>
                 </button>
 
                 <button
                   onClick={handleStopAll}
                   className="group flex items-center p-2 hover:px-3 bg-rose-600/20 text-rose-400 border border-rose-500/40 hover:bg-rose-600 hover:text-white text-xs font-bold rounded-lg transition-all duration-200 shadow-sm overflow-hidden"
-                  title="Stop All (Dừng toàn bộ microservices)"
+                  title={activeCategory !== 'ALL' ? `Stop ${activeCategoryName} (Dừng các service trong nhóm)` : "Stop All (Dừng toàn bộ microservices)"}
                 >
                   <svg className="w-3.5 h-3.5 fill-current flex-shrink-0" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg>
-                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
-                    Stop All
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[160px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    {activeCategory !== 'ALL' ? `Stop ${activeCategoryName}` : 'Stop All'}
                   </span>
                 </button>
 
                 <button
                   onClick={handleKillAllPorts}
                   className="group flex items-center p-2 hover:px-3 bg-amber-600/20 text-amber-300 border border-amber-500/40 hover:bg-amber-600 hover:text-white text-xs font-bold rounded-lg transition-all duration-200 shadow-sm overflow-hidden"
-                  title="Kill Ports (Giải phóng cổng toàn bộ microservices)"
+                  title={activeCategory !== 'ALL' ? `Kill Ports (${activeCategoryName})` : "Kill Ports (Giải phóng cổng toàn bộ microservices)"}
                 >
                   <span className="text-sm leading-none flex-shrink-0">⚡</span>
-                  <span className="max-w-0 opacity-0 group-hover:max-w-[100px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
-                    Kill Ports
+                  <span className="max-w-0 opacity-0 group-hover:max-w-[160px] group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-200 whitespace-nowrap overflow-hidden">
+                    {activeCategory !== 'ALL' ? `Kill Ports (${activeCategoryName})` : 'Kill Ports'}
                   </span>
                 </button>
 
@@ -1132,6 +1170,8 @@
                       if (groupServices.length === 0) return null;
 
                       const groupRunning = groupServices.filter(s => s.statusInfo?.status === 'RUNNING').length;
+                      const catObj = categories.find(c => (c.id || '').toUpperCase() === group);
+                      const groupDisplayName = catObj?.name || group;
 
                       return (
                         <div key={group} className="space-y-4">
@@ -1139,7 +1179,7 @@
                           <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
                             <div className="flex items-center space-x-3">
                               <span className="p-1.5 bg-blue-500/10 text-cyan-400 rounded-lg font-mono text-xs font-bold">📂</span>
-                              <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono">{group}</h2>
+                              <h2 className="text-sm font-bold text-white tracking-wider font-mono">{groupDisplayName}</h2>
                               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
                                 {groupRunning}/{groupServices.length} apps
                               </span>
@@ -1150,19 +1190,19 @@
                                 onClick={() => handleStartGroup(group)}
                                 className="px-3 py-1 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white border border-slate-700 transition-all"
                               >
-                                Start {group}
+                                Start {groupDisplayName}
                               </button>
                               <button
                                 onClick={() => handleRestartGroup(group)}
                                 className="px-3 py-1 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-indigo-600 text-slate-300 hover:text-white border border-slate-700 transition-all"
                               >
-                                ↺ {group}
+                                ↺ {groupDisplayName}
                               </button>
                               <button
                                 onClick={() => handleStopGroup(group)}
                                 className="px-3 py-1 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-400 hover:text-white border border-slate-700 transition-all"
                               >
-                                Stop {group}
+                                Stop {groupDisplayName}
                               </button>
                             </div>
                           </div>
@@ -1173,6 +1213,7 @@
                               <ServiceGridCard
                                 key={service.id}
                                 service={service}
+                                categoryName={groupDisplayName}
                                 logs={logsMap[service.id] || []}
                                 onStart={handleStartService}
                                 onStop={handleStopService}
@@ -1411,7 +1452,8 @@
                   onDeleteService={handleDeleteService}
                   onNavigateToServices={(catId) => {
                     setActiveCategory(catId);
-                    setViewMode('grid');
+                    setViewMode('monitor');
+                    setMonitorViewType('console');
                   }}
                 />
               )}
@@ -3237,7 +3279,6 @@
                         <span className="text-2xl p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/40">{s.icon || '⚡'}</span>
                         <div>
                           <h4 className="text-sm font-bold text-white">{s.name}</h4>
-                          <code className="text-xs font-mono text-cyan-300 block mt-0.5">{s.command}</code>
                         </div>
                       </div>
 
@@ -3354,6 +3395,7 @@
     // ================= SERVICE GRID CARD =================
     function ServiceGridCard({
       service,
+      categoryName,
       logs = [],
       onStart,
       onStop,
@@ -3502,7 +3544,7 @@
               )}
 
               <span className="px-2.5 py-0.5 rounded-md font-semibold bg-blue-950/80 text-blue-300 border border-blue-800/40">
-                {service.category}
+                {categoryName || service.category}
               </span>
 
               {service.port && (
@@ -4353,6 +4395,7 @@
       const [targetCategory, setTargetCategory] = useState(null);
       const [searchQuery, setSearchQuery] = useState('');
       const [actionStatus, setActionStatus] = useState('');
+      const [viewType, setViewType] = useState('list'); // 'list' | 'grid'
 
       const filteredCategories = categories.filter(c => {
         if (!searchQuery.trim()) return true;
@@ -4446,50 +4489,86 @@
             </div>
           )}
 
-          {/* Search bar */}
-          <div className="flex items-center justify-between bg-[#080d19] p-3 rounded-xl border border-slate-800">
-            <div className="relative w-72">
-              <input
-                type="text"
-                placeholder="Tìm kiếm danh mục..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[#050811] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
-              />
-              <span className="absolute left-2.5 top-2 text-xs text-slate-500">🔍</span>
+          {/* Search bar & View Mode Switcher */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-[#080d19] p-3 rounded-xl border border-slate-800">
+            <div className="flex items-center space-x-3">
+              <div className="relative w-72">
+                <input
+                  type="text"
+                  placeholder="Tìm kiếm danh mục..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-[#050811] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                />
+                <span className="absolute left-2.5 top-2 text-xs text-slate-500">🔍</span>
+              </div>
+
+              {/* View Switcher: List vs Grid */}
+              <div className="flex items-center bg-[#050811] p-1 rounded-xl border border-slate-800 shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => setViewType('list')}
+                  className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    viewType === 'list'
+                      ? 'bg-purple-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Chế độ xem dạng danh sách (Mặc định)"
+                >
+                  <span>☰</span>
+                  <span>Danh sách</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewType('grid')}
+                  className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    viewType === 'grid'
+                      ? 'bg-purple-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Chế độ xem dạng lưới thẻ"
+                >
+                  <span>⊞</span>
+                  <span>Lưới</span>
+                </button>
+              </div>
             </div>
+
             <span className="text-xs text-slate-400 font-mono">
               Hiển thị {filteredCategories.length} / {categories.length} danh mục
             </span>
           </div>
 
-          {/* Category Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredCategories.length === 0 ? (
-              <div className="col-span-full py-12 text-center text-slate-500 text-sm font-mono bg-appCard border border-slate-800 rounded-2xl">
-                Không tìm thấy danh mục nào. Bấm "➕ Thêm Danh Mục Mới" để tạo!
-              </div>
-            ) : (
-              filteredCategories.map(cat => {
-                const accentColor = cat.color || '#38bdf8';
-                const catServices = cat.services || services.filter(s => (s.group || s.category || '').toUpperCase() === cat.id);
+          {viewType === 'list' ? (
+            /* ============= LIST VIEW (DEFAULT) ============= */
+            <div className="space-y-3">
+              {filteredCategories.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-sm font-mono bg-appCard border border-slate-800 rounded-2xl">
+                  Không tìm thấy danh mục nào. Bấm "➕ Thêm Danh Mục Mới" để tạo!
+                </div>
+              ) : (
+                filteredCategories.map(cat => {
+                  const accentColor = cat.color || '#38bdf8';
+                  const catServices = cat.services || services.filter(s => (s.group || s.category || '').toUpperCase() === cat.id);
+                  const runningCount = catServices.filter(s => s.statusInfo?.status === 'RUNNING').length;
 
-                return (
-                  <div
-                    key={cat.id}
-                    className="bg-appCard border border-slate-800/90 hover:border-slate-700 rounded-2xl p-5 flex flex-col justify-between shadow-xl transition-all hover:shadow-2xl group"
-                  >
-                    <div>
-                      {/* Card Header */}
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div className="flex items-center space-x-3">
-                          <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border flex-shrink-0"
-                            style={{ backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }}
-                          >
-                            {cat.icon || '📁'}
-                          </div>
-                          <div>
+                  return (
+                    <div
+                      key={cat.id}
+                      onClick={() => onNavigateToServices && onNavigateToServices(cat.id)}
+                      className="bg-appCard hover:bg-[#0c1426] border border-slate-800/90 hover:border-blue-500/60 rounded-2xl p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4 shadow-lg transition-all hover:shadow-2xl cursor-pointer group"
+                      title={`Nhấp để mở Service Monitor cho nhóm ${cat.name || cat.id}`}
+                    >
+                      {/* Left: Icon, Name, ID, Description */}
+                      <div className="flex items-start space-x-3.5 min-w-[280px] xl:w-80 flex-shrink-0">
+                        <div
+                          className="w-11 h-11 rounded-xl flex items-center justify-center text-xl shadow-inner border flex-shrink-0 group-hover:scale-105 transition-transform"
+                          style={{ backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }}
+                        >
+                          {cat.icon || '📁'}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2 flex-wrap">
                             <h3 className="text-sm font-bold text-white font-mono group-hover:text-cyan-300 transition-colors">
                               {cat.name || cat.id}
                             </h3>
@@ -4497,62 +4576,46 @@
                               ID: {cat.id}
                             </span>
                           </div>
+                          <p className="text-xs text-slate-400 mt-1 line-clamp-1">
+                            {cat.description || `Các microservices thuộc nhóm ${cat.name || cat.id}.`}
+                          </p>
                         </div>
-
-                        <button
-                          onClick={() => onNavigateToServices && onNavigateToServices(cat.id)}
-                          className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border flex items-center space-x-1"
-                          style={{ backgroundColor: `${accentColor}15`, color: accentColor, borderColor: `${accentColor}40` }}
-                          title={`Xem ${catServices.length} service thuộc nhóm ${cat.name || cat.id}`}
-                        >
-                          <span>{catServices.length} services</span>
-                        </button>
                       </div>
 
-                      {/* Description */}
-                      <p className="text-xs text-slate-400 mb-4 min-h-[32px] line-clamp-2">
-                        {cat.description || `Các microservices thuộc nhóm ${cat.name || cat.id}.`}
-                      </p>
-
-                      {/* Services Chips */}
-                      <div className="space-y-1.5 mb-4 bg-[#050811] p-3 rounded-xl border border-slate-800/80">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono uppercase font-bold text-slate-400 block">
-                            Microservices ({catServices.length}):
+                      {/* Middle: Microservices summary & chips */}
+                      <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center gap-3 bg-[#050811]/70 p-2.5 rounded-xl border border-slate-800/80">
+                        {/* Service & Running Status Pill */}
+                        <div className="flex items-center space-x-2 flex-shrink-0">
+                          <span
+                            className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold border flex items-center space-x-1.5"
+                            style={{ backgroundColor: `${accentColor}15`, color: accentColor, borderColor: `${accentColor}40` }}
+                          >
+                            <span>📦</span>
+                            <span>{catServices.length} apps</span>
                           </span>
-                          {onAssignCategoryServices && (
-                            <button
-                              onClick={() => setAssignModalCategory(cat)}
-                              className="px-2.5 py-1 text-[10px] font-semibold text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-600/70 rounded-lg border border-cyan-700/50 flex items-center space-x-1.5 transition-all shadow-sm"
-                              title={`Chọn các service có sẵn để gán vào nhóm ${cat.name || cat.id}`}
-                            >
-                              <span>🔗</span>
-                              <span>Gán Services</span>
-                            </button>
-                          )}
+
+                          <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[11px] font-mono font-semibold border ${
+                            runningCount > 0
+                              ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50'
+                              : 'bg-slate-900/80 text-slate-400 border-slate-800'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${runningCount > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`}></span>
+                            {runningCount}/{catServices.length} chạy
+                          </span>
                         </div>
 
-                        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pt-1">
+                        {/* Chips container */}
+                        <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto flex-1 max-h-16 py-0.5">
                           {catServices.length === 0 ? (
-                            <div className="w-full flex items-center justify-between py-1">
-                              <span className="text-[11px] text-slate-500 italic">Chưa có service nào</span>
-                              {onAssignCategoryServices && (
-                                <button
-                                  onClick={() => setAssignModalCategory(cat)}
-                                  className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono hover:underline"
-                                >
-                                  + Gán ngay
-                                </button>
-                              )}
-                            </div>
+                            <span className="text-xs text-slate-500 italic">Chưa có service nào</span>
                           ) : (
                             catServices.map(s => (
                               <div
                                 key={s.id}
-                                className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-[#0c1426] hover:bg-[#14203a] border border-slate-700/80 hover:border-cyan-500/50 text-[10px] font-mono text-cyan-200 transition-all group/chip"
+                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-[#0c1426] border border-slate-700/80 text-[10px] font-mono text-cyan-200 group/chip"
                               >
-                                <span className="text-emerald-400 text-[8px]">●</span>
-                                <span className="font-bold text-slate-200">{s.name}</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${s.statusInfo?.status === 'RUNNING' ? 'bg-emerald-400' : 'bg-slate-600'}`}></span>
+                                <span className="font-semibold text-slate-200">{s.name}</span>
                                 {s.port && <span className="text-purple-300">:{s.port}</span>}
                                 {onAssignCategoryServices && (
                                   <button
@@ -4561,7 +4624,7 @@
                                       handleUnassignService(cat.id, s.id, s.name);
                                     }}
                                     className="p-0.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 rounded transition-colors opacity-0 group-hover/chip:opacity-100"
-                                    title={`Gỡ service ${s.name} khỏi danh mục ${cat.name || cat.id}`}
+                                    title={`Gỡ service ${s.name} khỏi danh mục`}
                                   >
                                     ✕
                                   </button>
@@ -4571,41 +4634,227 @@
                           )}
                         </div>
                       </div>
-                    </div>
 
-                    {/* Footer Actions */}
-                    <div className="flex items-center justify-between pt-3 border-t border-slate-800/80">
-                      <button
-                        onClick={() => onNavigateToServices && onNavigateToServices(cat.id)}
-                        className="px-3 py-1.5 text-xs text-blue-400 hover:text-white bg-blue-950/30 hover:bg-blue-600/30 rounded-lg transition-colors border border-blue-800/40 flex items-center space-x-1 font-mono"
-                      >
-                        <span>🔍</span>
-                        <span>Lọc Services</span>
-                      </button>
-
-                      <div className="flex items-center space-x-2">
+                      {/* Right: Actions */}
+                      <div className="flex items-center space-x-2 flex-shrink-0 self-end xl:self-center">
                         <button
-                          onClick={() => setModalCategory(cat)}
-                          className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700 flex items-center space-x-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onNavigateToServices && onNavigateToServices(cat.id);
+                          }}
+                          className="px-3.5 py-1.5 text-xs font-semibold text-blue-300 hover:text-white bg-blue-950/50 hover:bg-blue-600 rounded-xl transition-all border border-blue-700/50 flex items-center space-x-1.5 shadow-sm"
+                          title={`Mở Service Monitor lọc theo nhóm ${cat.name || cat.id}`}
+                        >
+                          <span>🖥️</span>
+                          <span>Xem Monitor</span>
+                        </button>
+
+                        {onAssignCategoryServices && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAssignModalCategory(cat);
+                            }}
+                            className="px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:text-white bg-cyan-950/40 hover:bg-cyan-600 rounded-xl transition-all border border-cyan-700/50 flex items-center space-x-1.5"
+                            title={`Gán service vào nhóm ${cat.name || cat.id}`}
+                          >
+                            <span>🔗</span>
+                            <span>Gán</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setModalCategory(cat);
+                          }}
+                          className="p-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors border border-slate-700"
+                          title="Chỉnh sửa danh mục"
                         >
                           <span>✏️</span>
-                          <span>Sửa</span>
                         </button>
 
                         <button
-                          onClick={() => handleDelete(cat.id, cat.name)}
-                          className="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:text-white bg-rose-950/20 hover:bg-rose-600 rounded-lg transition-colors border border-rose-800/30 flex items-center space-x-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(cat.id, cat.name);
+                          }}
+                          className="p-1.5 text-xs font-semibold text-rose-400 hover:text-white bg-rose-950/30 hover:bg-rose-600 rounded-xl transition-colors border border-rose-800/30"
+                          title="Xóa danh mục"
                         >
                           <span>🗑️</span>
-                          <span>Xóa</span>
                         </button>
                       </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+                  );
+                })
+              )}
+            </div>
+          ) : (
+            /* ============= GRID VIEW ============= */
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredCategories.length === 0 ? (
+                <div className="col-span-full py-12 text-center text-slate-500 text-sm font-mono bg-appCard border border-slate-800 rounded-2xl">
+                  Không tìm thấy danh mục nào. Bấm "➕ Thêm Danh Mục Mới" để tạo!
+                </div>
+              ) : (
+                filteredCategories.map(cat => {
+                  const accentColor = cat.color || '#38bdf8';
+                  const catServices = cat.services || services.filter(s => (s.group || s.category || '').toUpperCase() === cat.id);
+
+                  return (
+                    <div
+                      key={cat.id}
+                      onClick={() => onNavigateToServices && onNavigateToServices(cat.id)}
+                      className="bg-appCard border border-slate-800/90 hover:border-blue-500/50 rounded-2xl p-5 flex flex-col justify-between shadow-xl transition-all hover:shadow-2xl group cursor-pointer"
+                      title={`Nhấp để mở Service Monitor cho nhóm ${cat.name || cat.id}`}
+                    >
+                      <div>
+                        {/* Card Header */}
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="flex items-center space-x-3">
+                            <div
+                              className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border flex-shrink-0"
+                              style={{ backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }}
+                            >
+                              {cat.icon || '📁'}
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-bold text-white font-mono group-hover:text-cyan-300 transition-colors">
+                                {cat.name || cat.id}
+                              </h3>
+                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                                ID: {cat.id}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNavigateToServices && onNavigateToServices(cat.id);
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border flex items-center space-x-1"
+                            style={{ backgroundColor: `${accentColor}15`, color: accentColor, borderColor: `${accentColor}40` }}
+                            title={`Xem ${catServices.length} service thuộc nhóm ${cat.name || cat.id}`}
+                          >
+                            <span>{catServices.length} services</span>
+                          </button>
+                        </div>
+
+                        {/* Description */}
+                        <p className="text-xs text-slate-400 mb-4 min-h-[32px] line-clamp-2">
+                          {cat.description || `Các microservices thuộc nhóm ${cat.name || cat.id}.`}
+                        </p>
+
+                        {/* Services Chips */}
+                        <div className="space-y-1.5 mb-4 bg-[#050811] p-3 rounded-xl border border-slate-800/80">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase font-bold text-slate-400 block">
+                              Microservices ({catServices.length}):
+                            </span>
+                            {onAssignCategoryServices && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAssignModalCategory(cat);
+                                }}
+                                className="px-2.5 py-1 text-[10px] font-semibold text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-600/70 rounded-lg border border-cyan-700/50 flex items-center space-x-1.5 transition-all shadow-sm"
+                                title={`Chọn các service có sẵn để gán vào nhóm ${cat.name || cat.id}`}
+                              >
+                                <span>🔗</span>
+                                <span>Gán Services</span>
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pt-1">
+                            {catServices.length === 0 ? (
+                              <div className="w-full flex items-center justify-between py-1">
+                                <span className="text-[11px] text-slate-500 italic">Chưa có service nào</span>
+                                {onAssignCategoryServices && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAssignModalCategory(cat);
+                                    }}
+                                    className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono hover:underline"
+                                  >
+                                    + Gán ngay
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              catServices.map(s => (
+                                <div
+                                  key={s.id}
+                                  className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-[#0c1426] hover:bg-[#14203a] border border-slate-700/80 hover:border-cyan-500/50 text-[10px] font-mono text-cyan-200 transition-all group/chip"
+                                >
+                                  <span className="text-emerald-400 text-[8px]">●</span>
+                                  <span className="font-bold text-slate-200">{s.name}</span>
+                                  {s.port && <span className="text-purple-300">:{s.port}</span>}
+                                  {onAssignCategoryServices && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUnassignService(cat.id, s.id, s.name);
+                                      }}
+                                      className="p-0.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 rounded transition-colors opacity-0 group-hover/chip:opacity-100"
+                                      title={`Gỡ service ${s.name} khỏi danh mục ${cat.name || cat.id}`}
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Footer Actions */}
+                      <div className="flex items-center justify-between pt-3 border-t border-slate-800/80">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onNavigateToServices && onNavigateToServices(cat.id);
+                          }}
+                          className="px-3 py-1.5 text-xs text-blue-400 hover:text-white bg-blue-950/30 hover:bg-blue-600/30 rounded-lg transition-colors border border-blue-800/40 flex items-center space-x-1 font-mono"
+                        >
+                          <span>🔍</span>
+                          <span>Lọc Services</span>
+                        </button>
+
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setModalCategory(cat);
+                            }}
+                            className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700 flex items-center space-x-1"
+                          >
+                            <span>✏️</span>
+                            <span>Sửa</span>
+                          </button>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(cat.id, cat.name);
+                            }}
+                            className="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:text-white bg-rose-950/20 hover:bg-rose-600 rounded-lg transition-colors border border-rose-800/30 flex items-center space-x-1"
+                          >
+                            <span>🗑️</span>
+                            <span>Xóa</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
 
           {/* Category Modal */}
           {modalCategory !== undefined && (
