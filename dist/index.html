@@ -41,6 +41,11 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- xterm.js for Interactive Web Terminal -->
+  <link rel="stylesheet" href="/vendor/xterm.css" />
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/xterm-addon-fit.js"></script>
+
   <style>
     /* Custom Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -839,6 +844,18 @@
                   <span className="text-base flex-shrink-0">🔀</span>
                   {!sidebarCollapsed && <span className="font-bold text-cyan-300">🔀 Port Forwarding</span>}
                 </button>
+
+                <button
+                  onClick={() => setViewMode('ssh')}
+                  className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    viewMode === 'ssh'
+                      ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg shadow-purple-600/30'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <span className="text-base flex-shrink-0">💻</span>
+                  {!sidebarCollapsed && <span className="font-bold text-violet-300">💻 SSH Servers & Terminal</span>}
+                </button>
               </div>
 
               {/* Quick Tasks in Sidebar */}
@@ -1499,6 +1516,11 @@
                 <TunnelManagerPage
                   services={services}
                 />
+              )}
+
+              {/* ============= MODE 9: SSH SERVERS & INTERACTIVE TERMINAL ============= */}
+              {viewMode === 'ssh' && (
+                <SshManagerPage onNavigateToTunnels={() => setViewMode('tunnels')} />
               )}
 
             </div>
@@ -4374,6 +4396,1056 @@
         </div>
       );
     }
+
+    // ================= SSH SERVER MODAL =================
+    function SshServerModal({ server, isOpen, onClose, onSave }) {
+      if (!isOpen) return null;
+
+      const [name, setName] = React.useState(server?.name || '');
+      const [host, setHost] = React.useState(server?.host || '');
+      const [port, setPort] = React.useState(server?.port || 22);
+      const [username, setUsername] = React.useState(server?.username || 'root');
+      const [authType, setAuthType] = React.useState(server?.authType || (server?.password ? 'password' : 'key'));
+      const [password, setPassword] = React.useState(server?.password || '');
+      const [showPassword, setShowPassword] = React.useState(false);
+      const [sshKeyPath, setSshKeyPath] = React.useState(server?.sshKeyPath || server?.identityFile || '~/.ssh/id_rsa');
+      const [jumpHost, setJumpHost] = React.useState(server?.jumpHost || '');
+      const [group, setGroup] = React.useState(server?.group || 'Default');
+      const [description, setDescription] = React.useState(server?.description || '');
+      const [testing, setTesting] = React.useState(false);
+      const [testResult, setTestResult] = React.useState(null);
+      const [saving, setSaving] = React.useState(false);
+      const [errorMsg, setErrorMsg] = React.useState('');
+
+      const groupPresets = ['Default', 'UAT', 'PROD', 'DEV', 'DATABASE', 'BASTION'];
+
+      const handleTestConnection = async () => {
+        if (!host.trim()) {
+          setErrorMsg('Vui lòng nhập địa chỉ Host trước khi kiểm tra');
+          return;
+        }
+        setTesting(true);
+        setTestResult(null);
+        setErrorMsg('');
+        try {
+          const draft = await onSave({
+            id: server?.id,
+            name: name.trim() || host.trim(),
+            host: host.trim(),
+            port: parseInt(port, 10) || 22,
+            username: username.trim() || 'root',
+            authType,
+            password,
+            sshKeyPath: sshKeyPath.trim(),
+            identityFile: sshKeyPath.trim(),
+            jumpHost: jumpHost.trim(),
+            group: group.trim() || 'Default',
+            description: description.trim()
+          }, true);
+
+          if (draft && draft.id) {
+            const res = await fetch(`/api/ssh/servers/${encodeURIComponent(draft.id)}/test`, { method: 'POST' });
+            const data = await res.json();
+            setTestResult(data);
+          }
+        } catch (e) {
+          setTestResult({ success: false, error: e.message });
+        } finally {
+          setTesting(false);
+        }
+      };
+
+      const handleSubmit = async (e) => {
+        if (e) e.preventDefault();
+        if (!name.trim()) { setErrorMsg('Vui lòng nhập tên máy chủ'); return; }
+        if (!host.trim()) { setErrorMsg('Vui lòng nhập IP / Host'); return; }
+        setSaving(true);
+        setErrorMsg('');
+        try {
+          await onSave({
+            id: server?.id,
+            name: name.trim(),
+            host: host.trim(),
+            port: parseInt(port, 10) || 22,
+            username: username.trim() || 'root',
+            authType,
+            password,
+            sshKeyPath: sshKeyPath.trim(),
+            identityFile: sshKeyPath.trim(),
+            jumpHost: jumpHost.trim(),
+            group: group.trim() || 'Default',
+            description: description.trim()
+          }, false);
+          onClose();
+        } catch (err) {
+          setErrorMsg(err.message || 'Lỗi khi lưu máy chủ');
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-[#0b101e] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col my-8 animate-in fade-in zoom-in duration-150">
+            {/* Header */}
+            <div className="px-6 py-4 bg-[#080d1a] border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <span className="text-xl p-2 rounded-xl bg-violet-950/60 text-violet-300 border border-violet-800/40">💻</span>
+                <div>
+                  <h3 className="text-base font-bold text-white tracking-wide">
+                    {server ? 'Chỉnh Sửa Máy Chủ SSH' : 'Thêm Máy Chủ SSH Mới'}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Lưu thông tin đăng nhập để mở Web Terminal hoặc Native Terminal 1-click
+                  </p>
+                </div>
+              </div>
+              <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">✕</button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto max-h-[calc(85vh-120px)]">
+              {errorMsg && (
+                <div className="p-3 bg-rose-950/50 border border-rose-800/60 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
+                  <span>✖</span>
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {testResult && (
+                <div className={`p-3 rounded-xl text-xs flex items-center space-x-2 border ${
+                  testResult.success ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300' : 'bg-rose-950/40 border-rose-800/50 text-rose-300'
+                }`}>
+                  <span>{testResult.success ? '✔' : '✖'}</span>
+                  <span>{testResult.message || testResult.error}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Tên Gợi Nhớ *</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder="VD: Klive Admin UAT"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Nhóm / Tag</label>
+                  <input
+                    type="text"
+                    value={group}
+                    onChange={e => setGroup(e.target.value)}
+                    placeholder="UAT, PROD..."
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 font-bold text-violet-300"
+                  />
+                </div>
+              </div>
+
+              {/* Group presets */}
+              <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                <span className="text-[10px] text-slate-500">Gợi ý tag:</span>
+                {groupPresets.map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setGroup(p)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                      group === p ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-slate-800">
+                <div className="md:col-span-3">
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Địa Chỉ IP / Host *</label>
+                  <input
+                    type="text"
+                    value={host}
+                    onChange={e => setHost(e.target.value)}
+                    placeholder="47.84.106.29 hoặc ec2.amazonaws.com"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Port</label>
+                  <input
+                    type="number"
+                    value={port}
+                    onChange={e => setPort(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-violet-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Tài Khoản (Username)</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  placeholder="root, ubuntu, klive..."
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                />
+              </div>
+
+              {/* Auth Type selection */}
+              <div className="pt-2 border-t border-slate-800">
+                <label className="block text-xs font-semibold text-slate-300 mb-2">Phương Thức Xác Thực</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAuthType('password')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-2 transition-all ${
+                      authType === 'password'
+                        ? 'bg-amber-950/40 border-amber-500/60 text-amber-300 shadow-md'
+                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🔒 Mật Khẩu (Password)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAuthType('key')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center space-x-2 transition-all ${
+                      authType === 'key'
+                        ? 'bg-cyan-950/40 border-cyan-500/60 text-cyan-300 shadow-md'
+                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🔑 SSH Private Key</span>
+                  </button>
+                </div>
+              </div>
+
+              {authType === 'password' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Mật Khẩu SSH</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="Nhập mật khẩu SSH của server..."
+                      className="w-full px-3 py-2 pr-10 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2.5 top-2 text-slate-400 hover:text-white text-xs"
+                      title={showPassword ? 'Ẩn mật khẩu' : 'Xem mật khẩu'}
+                    >
+                      {showPassword ? '👁️‍🗨️' : '👁️'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Đường Dẫn Private Key File</label>
+                  <input
+                    type="text"
+                    value={sshKeyPath}
+                    onChange={e => setSshKeyPath(e.target.value)}
+                    placeholder="~/.ssh/id_rsa hoặc /path/to/key.pem"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Jump Host / Bastion (Tùy chọn)</label>
+                <input
+                  type="text"
+                  value={jumpHost}
+                  onChange={e => setJumpHost(e.target.value)}
+                  placeholder="user@bastion.domain.com:22"
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Ghi Chú</label>
+                <textarea
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  placeholder="Mô tả server, ứng dụng đang chạy..."
+                  rows="2"
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 resize-none"
+                ></textarea>
+              </div>
+
+              {/* Bottom Actions */}
+              <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testing}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+                >
+                  <span>{testing ? '⏳' : '🧪'}</span>
+                  <span>{testing ? 'Đang kiểm tra...' : 'Kiểm Tra Kết Nối'}</span>
+                </button>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="px-5 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-purple-950/40 flex items-center space-x-1.5 transition-all disabled:opacity-50"
+                  >
+                    <span>💾</span>
+                    <span>{saving ? 'Đang lưu...' : 'Lưu Cấu Hình'}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+
+    // ================= SSH MANAGER & INTERACTIVE TERMINAL PAGE =================
+    // ================= SSH MANAGER & INTERACTIVE TERMINAL PAGE =================
+    function SshManagerPage({ onNavigateToTunnels }) {
+      const [servers, setServers] = React.useState([]);
+      const [loading, setLoading] = React.useState(false);
+      const [searchQuery, setSearchQuery] = React.useState('');
+      const [selectedGroup, setSelectedGroup] = React.useState('ALL');
+      const [isModalOpen, setIsModalOpen] = React.useState(false);
+      const [editingServer, setEditingServer] = React.useState(null);
+      const [actionLoading, setActionLoading] = React.useState({});
+      
+      // Layout states: Collapsible sidebar & Fullscreen terminal
+      const [isListCollapsed, setIsListCollapsed] = React.useState(false);
+      const [isFullscreen, setIsFullscreen] = React.useState(false);
+      const [fontSize, setFontSize] = React.useState(13);
+
+      // Multi-tab sessions: Array of { id, serverId, serverName, host, user, status }
+      const [sessions, setSessions] = React.useState([]);
+      const [activeSessionId, setActiveSessionId] = React.useState(null);
+
+      // Terminal instances ref: sessionId -> { term, fitAddon, ws }
+      const terminalInstances = React.useRef(new Map());
+      const containerRefs = React.useRef(new Map());
+
+      const snippets = [
+        { label: '🐳 docker ps', cmd: 'docker ps' },
+        { label: '📈 htop', cmd: 'htop' },
+        { label: '💾 df -h', cmd: 'df -h' },
+        { label: '🧠 free -m', cmd: 'free -m' },
+        { label: '🌐 netstat', cmd: 'netstat -tulpn' },
+        { label: '⚙️ systemctl', cmd: 'systemctl status' },
+        { label: '📜 syslog', cmd: 'tail -n 50 /var/log/syslog 2>/dev/null || tail -n 50 /var/log/messages' },
+        { label: '🧹 clear', cmd: 'clear' }
+      ];
+
+      const fetchServers = async () => {
+        try {
+          setLoading(true);
+          const res = await fetch('/api/ssh/servers');
+          const data = await res.json();
+          if (data.success) {
+            setServers(data.servers || []);
+          }
+        } catch (e) {
+          console.error('Lỗi tải danh sách SSH servers:', e);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const fitActiveTerminal = () => {
+        setTimeout(() => {
+          if (activeSessionId) {
+            const inst = terminalInstances.current.get(activeSessionId);
+            if (inst && inst.fitAddon) {
+              try {
+                inst.fitAddon.fit();
+                inst.term?.focus();
+              } catch (e) {}
+            }
+          }
+        }, 120);
+      };
+
+      React.useEffect(() => {
+        fetchServers();
+
+        const eventSource = new EventSource('/api/events');
+        eventSource.addEventListener('ssh-servers-updated', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (Array.isArray(data)) setServers(data);
+          } catch (err) {}
+        });
+
+        const handleGlobalResize = () => {
+          for (const [sId, inst] of terminalInstances.current.entries()) {
+            try {
+              if (inst.fitAddon) inst.fitAddon.fit();
+            } catch (e) {}
+          }
+        };
+
+        window.addEventListener('resize', handleGlobalResize);
+
+        return () => {
+          eventSource.close();
+          window.removeEventListener('resize', handleGlobalResize);
+          for (const [sId, inst] of terminalInstances.current.entries()) {
+            try { inst.ws?.close(); } catch (e) {}
+            try { inst.term?.dispose(); } catch (e) {}
+          }
+          terminalInstances.current.clear();
+        };
+      }, []);
+
+      // Initialize terminal for newly opened sessions
+      React.useEffect(() => {
+        sessions.forEach(sess => {
+          if (!terminalInstances.current.has(sess.id)) {
+            const containerEl = containerRefs.current.get(sess.id);
+            if (containerEl && (window.Terminal || typeof Terminal !== 'undefined')) {
+              initTerminalSession(sess, containerEl);
+            }
+          }
+        });
+      }, [sessions]);
+
+      // When active session changes or layout toggles, trigger fit
+      React.useEffect(() => {
+        fitActiveTerminal();
+      }, [activeSessionId, isListCollapsed, isFullscreen, fontSize]);
+
+      const initTerminalSession = (sess, containerEl) => {
+        const TermClass = window.Terminal || Terminal;
+        const FitClass = window.FitAddon?.FitAddon || window.FitAddon;
+
+        const term = new TermClass({
+          cursorBlink: true,
+          cursorStyle: 'bar',
+          fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
+          fontSize: fontSize,
+          lineHeight: 1.25,
+          theme: {
+            background: '#050811',
+            foreground: '#f8fafc',
+            cursor: '#a855f7',
+            cursorAccent: '#050811',
+            selectionBackground: 'rgba(168, 85, 247, 0.3)',
+            black: '#1e293b',
+            red: '#f87171',
+            green: '#4ade80',
+            yellow: '#facc15',
+            blue: '#60a5fa',
+            magenta: '#c084fc',
+            cyan: '#38bdf8',
+            white: '#f8fafc',
+            brightBlack: '#64748b',
+            brightRed: '#ef4444',
+            brightGreen: '#22c55e',
+            brightYellow: '#eab308',
+            brightBlue: '#3b82f6',
+            brightMagenta: '#a855f7',
+            brightCyan: '#06b6d4',
+            brightWhite: '#ffffff'
+          }
+        });
+
+        let fitAddon = null;
+        if (FitClass) {
+          fitAddon = new FitClass();
+          term.loadAddon(fitAddon);
+        }
+
+        containerEl.innerHTML = '';
+        term.open(containerEl);
+        if (fitAddon) {
+          try { fitAddon.fit(); } catch (e) {}
+        }
+
+        // Establish WebSocket connection
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const cols = term.cols || 120;
+        const rows = term.rows || 32;
+        const wsUrl = `${protocol}//${window.location.host}/ws/ssh?serverId=${encodeURIComponent(sess.serverId)}&cols=${cols}&rows=${rows}`;
+        const ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          setSessions(prev => prev.map(s => s.id === sess.id ? { ...s, status: 'connected' } : s));
+          setTimeout(() => {
+            if (fitAddon) {
+              try { fitAddon.fit(); } catch (e) {}
+            }
+          }, 100);
+        };
+
+        ws.onmessage = (event) => {
+          if (typeof event.data === 'string') {
+            term.write(event.data);
+          } else {
+            const reader = new FileReader();
+            reader.onload = () => term.write(reader.result);
+            reader.readAsText(event.data);
+          }
+        };
+
+        ws.onclose = () => {
+          setSessions(prev => prev.map(s => s.id === sess.id ? { ...s, status: 'closed' } : s));
+        };
+
+        ws.onerror = () => {
+          setSessions(prev => prev.map(s => s.id === sess.id ? { ...s, status: 'closed' } : s));
+        };
+
+        term.onData(data => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(data);
+          }
+        });
+
+        term.onResize(({ cols, rows }) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+          }
+        });
+
+        terminalInstances.current.set(sess.id, { term, fitAddon, ws });
+      };
+
+      const handleOpenTerminal = (server) => {
+        // If already has session for this server, switch to it or open new
+        const sessId = 'sess_' + Date.now();
+        const newSession = {
+          id: sessId,
+          serverId: server.id,
+          serverName: server.name,
+          host: server.host,
+          user: server.username || 'root',
+          status: 'connecting'
+        };
+        setSessions(prev => [...prev, newSession]);
+        setActiveSessionId(sessId);
+      };
+
+      const handleCloseSession = (e, sessId) => {
+        e.stopPropagation();
+        const inst = terminalInstances.current.get(sessId);
+        if (inst) {
+          try { inst.ws?.close(); } catch (err) {}
+          try { inst.term?.dispose(); } catch (err) {}
+          terminalInstances.current.delete(sessId);
+        }
+        containerRefs.current.delete(sessId);
+
+        setSessions(prev => {
+          const next = prev.filter(s => s.id !== sessId);
+          if (activeSessionId === sessId) {
+            setActiveSessionId(next.length > 0 ? next[next.length - 1].id : null);
+          }
+          return next;
+        });
+      };
+
+      const handleSendSnippet = (cmd) => {
+        if (!activeSessionId) return;
+        const inst = terminalInstances.current.get(activeSessionId);
+        if (inst && inst.ws && inst.ws.readyState === WebSocket.OPEN) {
+          inst.ws.send(cmd + '\r');
+          inst.term?.focus();
+        }
+      };
+
+      const handleZoom = (delta) => {
+        const newSize = Math.max(10, Math.min(22, fontSize + delta));
+        setFontSize(newSize);
+        for (const [sId, inst] of terminalInstances.current.entries()) {
+          if (inst.term) {
+            try {
+              inst.term.options.fontSize = newSize;
+              if (inst.fitAddon) inst.fitAddon.fit();
+            } catch (e) {}
+          }
+        }
+      };
+
+      const handleOpenNative = async (server) => {
+        try {
+          setActionLoading(prev => ({ ...prev, [server.id]: 'native' }));
+          const res = await fetch(`/api/ssh/servers/${encodeURIComponent(server.id)}/open-native`, { method: 'POST' });
+          const data = await res.json();
+          if (!data.success) {
+            alert('Lỗi: ' + (data.error || 'Không thể mở Terminal macOS'));
+          }
+        } catch (e) {
+          alert('Lỗi mở terminal: ' + e.message);
+        } finally {
+          setActionLoading(prev => ({ ...prev, [server.id]: null }));
+        }
+      };
+
+      const handleConvertToTunnel = async (server) => {
+        const localPort = prompt(`Tạo Port Forwarding Tunnel từ ${server.name}\nNhập Local Port cần mở:`, '27017');
+        if (!localPort) return;
+        try {
+          setActionLoading(prev => ({ ...prev, [server.id]: 'tunnel' }));
+          const res = await fetch(`/api/ssh/servers/${encodeURIComponent(server.id)}/to-tunnel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ localPort: parseInt(localPort, 10), remotePort: parseInt(localPort, 10) })
+          });
+          const data = await res.json();
+          if (data.success) {
+            if (onNavigateToTunnels) onNavigateToTunnels();
+          } else {
+            alert('Lỗi: ' + (data.error || 'Không thể tạo tunnel'));
+          }
+        } catch (e) {
+          alert('Lỗi tạo tunnel: ' + e.message);
+        } finally {
+          setActionLoading(prev => ({ ...prev, [server.id]: null }));
+        }
+      };
+
+      const handleSaveServer = async (serverData, isDraft = false) => {
+        const url = serverData.id ? `/api/ssh/servers/${encodeURIComponent(serverData.id)}` : '/api/ssh/servers';
+        const method = serverData.id ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(serverData)
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (!isDraft) {
+            fetchServers();
+          }
+          return data.server;
+        } else {
+          throw new Error(data.error || 'Lỗi khi lưu máy chủ');
+        }
+      };
+
+      const handleDeleteServer = async (server) => {
+        if (!confirm(`Bạn có chắc chắn muốn xóa máy chủ "${server.name}"?`)) return;
+        try {
+          const res = await fetch(`/api/ssh/servers/${encodeURIComponent(server.id)}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (data.success) {
+            fetchServers();
+          }
+        } catch (e) {
+          alert('Lỗi khi xóa máy chủ: ' + e.message);
+        }
+      };
+
+      // Filter groups
+      const allGroups = ['ALL', ...new Set(servers.map(s => s.group || 'Default').filter(Boolean))];
+      const filteredServers = servers.filter(s => {
+        const matchesGroup = selectedGroup === 'ALL' || (s.group || 'Default') === selectedGroup;
+        const q = searchQuery.toLowerCase().trim();
+        const matchesSearch = !q || (s.name && s.name.toLowerCase().includes(q)) || (s.host && s.host.toLowerCase().includes(q)) || (s.username && s.username.toLowerCase().includes(q));
+        return matchesGroup && matchesSearch;
+      });
+
+      const activeSession = sessions.find(s => s.id === activeSessionId);
+
+      return (
+        <div className={`flex-1 flex flex-col w-full h-[calc(100vh-80px)] overflow-hidden transition-all ${
+          isFullscreen ? 'fixed inset-0 z-50 bg-[#050811] p-4' : 'p-5 max-w-[2200px] mx-auto'
+        }`}>
+          
+          {/* Header (hidden in Fullscreen mode) */}
+          {!isFullscreen && (
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800/80 mb-4 flex-shrink-0">
+              <div className="flex items-center space-x-3">
+                <span className="text-2xl p-2 rounded-xl bg-violet-950/40 border border-violet-800/40 text-violet-300">💻</span>
+                <div>
+                  <div className="flex items-center space-x-2.5">
+                    <h1 className="text-lg font-bold text-white tracking-wide">SSH Servers & Interactive Terminal</h1>
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-violet-500/20 text-violet-300 border border-violet-500/40">
+                      {servers.length} Servers
+                    </span>
+                    {sessions.length > 0 && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center space-x-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span>{sessions.length} Terminal Active</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Quản lý máy chủ, mở Terminal PTY tương tác 2 chiều (htop, vim) hoặc khởi chạy 1-click qua Native Terminal macOS
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2.5">
+                <button
+                  onClick={fetchServers}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 transition-colors flex items-center space-x-1.5"
+                >
+                  <span>🔄</span>
+                  <span>Làm Mới</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setEditingServer(null);
+                    setIsModalOpen(true);
+                  }}
+                  className="px-3.5 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 rounded-xl shadow-lg shadow-purple-950/40 flex items-center space-x-1.5 transition-all"
+                >
+                  <span>➕</span>
+                  <span>Thêm Server Mới</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Main Layout: Flex with Compact Sidebar + Large Flex Terminal */}
+          <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
+            
+            {/* Left Column: Streamlined / Compact Server List Panel */}
+            {!isFullscreen && (
+              <div className={`transition-all duration-200 flex flex-col space-y-2.5 overflow-hidden flex-shrink-0 ${
+                isListCollapsed ? 'w-0 opacity-0 pointer-events-none' : 'w-[320px] sm:w-[340px]'
+              }`}>
+                
+                {/* Search & Filter bar */}
+                <div className="flex flex-col space-y-2 flex-shrink-0">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="Tìm kiếm máy chủ..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-[#0b101e] border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                    />
+                    <span className="absolute left-2.5 top-2 text-slate-500 text-xs">🔍</span>
+                  </div>
+
+                  {allGroups.length > 1 && (
+                    <div className="flex items-center space-x-1 overflow-x-auto py-0.5 scrollbar-none">
+                      {allGroups.map(grp => (
+                        <button
+                          key={grp}
+                          onClick={() => setSelectedGroup(grp)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-all ${
+                            selectedGroup === grp
+                              ? 'bg-violet-600 text-white shadow-sm'
+                              : 'bg-slate-900/90 text-slate-400 hover:text-white border border-slate-800'
+                          }`}
+                        >
+                          {grp}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Streamlined Server List */}
+                <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+                  {loading && servers.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-500">Đang tải máy chủ...</div>
+                  ) : filteredServers.length === 0 ? (
+                    <div className="p-6 bg-[#0b101e] rounded-xl border border-slate-800 text-center flex flex-col items-center justify-center space-y-2">
+                      <span className="text-3xl">💻</span>
+                      <span className="text-xs font-bold text-white">Chưa có máy chủ</span>
+                      <button
+                        onClick={() => {
+                          setEditingServer(null);
+                          setIsModalOpen(true);
+                        }}
+                        className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs rounded-xl shadow-md"
+                      >
+                        ➕ Thêm mới
+                      </button>
+                    </div>
+                  ) : (
+                    filteredServers.map(s => {
+                      const isPasswordAuth = s.authType === 'password';
+                      return (
+                        <div
+                          key={s.id}
+                          className="p-3 bg-[#0b101e] border border-slate-800/90 hover:border-violet-500/50 rounded-xl transition-all flex flex-col space-y-2 shadow-md group"
+                        >
+                          {/* Card Header */}
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <span className="text-lg p-1.5 rounded-lg bg-violet-950/50 border border-violet-800/40 text-violet-300 flex-shrink-0">
+                                💻
+                              </span>
+                              <div className="min-w-0">
+                                <div className="flex items-center space-x-1.5">
+                                  <h4 className="text-xs font-bold text-white truncate max-w-[170px]" title={s.name}>{s.name}</h4>
+                                  <span className="px-1 py-0.2 text-[9px] font-bold rounded bg-violet-950/60 text-violet-300 border border-violet-800/40 flex-shrink-0">
+                                    {s.group || 'Default'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center space-x-1 mt-0.5 text-[10px] font-mono text-slate-400 truncate">
+                                  <span className="text-slate-300 truncate">{s.username || 'root'}@{s.host}:{s.port || 22}</span>
+                                  <span>•</span>
+                                  <span className={isPasswordAuth ? 'text-amber-400' : 'text-cyan-400'}>
+                                    {isPasswordAuth ? '🔒 Pass' : '🔑 Key'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-0.5 flex-shrink-0">
+                              <button
+                                onClick={() => {
+                                  setEditingServer(s);
+                                  setIsModalOpen(true);
+                                }}
+                                className="p-1 text-slate-400 hover:text-violet-400 hover:bg-slate-800 rounded transition-colors"
+                                title="Chỉnh sửa"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteServer(s)}
+                                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
+                                title="Xóa"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                              </button>
+                            </div>
+                          </div>
+
+                          {s.description && (
+                            <p className="text-[10px] text-slate-400 line-clamp-1 italic px-0.5">
+                              "{s.description}"
+                            </p>
+                          )}
+
+                          {/* Streamlined Action Buttons */}
+                          <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/50">
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => handleOpenNative(s)}
+                                disabled={actionLoading[s.id] === 'native'}
+                                className="px-2 py-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-[10px] font-semibold border border-slate-700 transition-colors flex items-center space-x-1"
+                                title="Mở trong Terminal.app hoặc iTerm2 ngoài macOS"
+                              >
+                                <span>⚡</span>
+                                <span>{actionLoading[s.id] === 'native' ? '...' : 'macOS'}</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleConvertToTunnel(s)}
+                                disabled={actionLoading[s.id] === 'tunnel'}
+                                className="px-2 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 rounded-lg text-[10px] font-semibold border border-cyan-800/40 transition-colors flex items-center space-x-1"
+                                title="Tạo Port Forwarding Tunnel từ cấu hình này"
+                              >
+                                <span>🔀</span>
+                                <span>Tunnel</span>
+                              </button>
+                            </div>
+
+                            <button
+                              onClick={() => handleOpenTerminal(s)}
+                              className="px-2.5 py-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white font-bold rounded-lg text-[11px] shadow-sm shadow-purple-950/40 flex items-center space-x-1 transition-all"
+                            >
+                              <span>▶</span>
+                              <span>Terminal</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Right Column: Large Flexible Interactive Terminal Area */}
+            <div className="flex-1 min-w-0 flex flex-col bg-[#050811] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+              
+              {/* Tab Bar & Terminal Control Toolbar */}
+              <div className="px-3 py-2 bg-[#080d1a] border-b border-slate-800 flex items-center justify-between flex-shrink-0 overflow-x-auto gap-2">
+                
+                {/* Left controls: Toggle List button + Tab Sessions */}
+                <div className="flex items-center space-x-2 overflow-x-auto min-w-0">
+                  {/* Toggle list panel button */}
+                  {!isFullscreen && (
+                    <button
+                      onClick={() => setIsListCollapsed(!isListCollapsed)}
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold border border-slate-700 transition-colors flex items-center space-x-1 flex-shrink-0"
+                      title={isListCollapsed ? 'Mở rộng danh sách máy chủ' : 'Thu gọn danh sách để phóng to Terminal'}
+                    >
+                      <span>{isListCollapsed ? '▶ Danh Sách' : '◀ Thu Gọn'}</span>
+                    </button>
+                  )}
+
+                  {sessions.length === 0 ? (
+                    <span className="font-mono text-xs text-slate-400 px-2 py-1 flex items-center space-x-1.5">
+                      <span>🖥️</span>
+                      <span>Interactive SSH Terminal</span>
+                    </span>
+                  ) : (
+                    sessions.map(sess => {
+                      const isActive = activeSessionId === sess.id;
+                      const isConn = sess.status === 'connected';
+                      const isConnecting = sess.status === 'connecting';
+                      return (
+                        <div
+                          key={sess.id}
+                          onClick={() => setActiveSessionId(sess.id)}
+                          className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl cursor-pointer transition-all border text-xs font-mono select-none flex-shrink-0 ${
+                            isActive
+                              ? 'bg-violet-950/60 border-violet-500/60 text-violet-200 shadow-sm'
+                              : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${
+                            isConn ? 'bg-emerald-400' : isConnecting ? 'bg-amber-400 animate-ping' : 'bg-slate-500'
+                          }`}></span>
+                          <span className="truncate max-w-[150px] font-semibold">{sess.serverName}</span>
+                          <button
+                            onClick={e => handleCloseSession(e, sess.id)}
+                            className="text-slate-500 hover:text-white rounded px-1 hover:bg-slate-700/60"
+                            title="Đóng phiên"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Right controls: Font zoom, Clear, Fullscreen */}
+                <div className="flex items-center space-x-1.5 flex-shrink-0">
+                  {activeSession && (
+                    <>
+                      {/* Font zoom buttons */}
+                      <div className="flex items-center space-x-0.5 bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-xs text-slate-400 font-mono">
+                        <button
+                          onClick={() => handleZoom(-1)}
+                          className="px-1.5 py-0.5 hover:text-white hover:bg-slate-800 rounded"
+                          title="Giảm cỡ chữ (Zoom Out)"
+                        >
+                          A-
+                        </button>
+                        <span className="px-1 text-[10px] text-slate-500">{fontSize}px</span>
+                        <button
+                          onClick={() => handleZoom(1)}
+                          className="px-1.5 py-0.5 hover:text-white hover:bg-slate-800 rounded"
+                          title="Tăng cỡ chữ (Zoom In)"
+                        >
+                          A+
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => handleSendSnippet('clear')}
+                        className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-semibold rounded-lg border border-slate-700 transition-colors"
+                        title="Clear Terminal Screen"
+                      >
+                        🧹 Clear
+                      </button>
+                    </>
+                  )}
+
+                  {/* Fullscreen toggle */}
+                  <button
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    className={`p-1.5 rounded-lg text-xs font-semibold border transition-colors flex items-center space-x-1 ${
+                      isFullscreen
+                        ? 'bg-purple-950 border-purple-500 text-purple-200'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border-slate-700'
+                    }`}
+                    title={isFullscreen ? 'Thu nhỏ lại' : 'Phóng to Terminal toàn màn hình'}
+                  >
+                    <span>{isFullscreen ? '✕ Thoát Fullscreen' : '⛶ Toàn Màn Hình'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Snippets Toolbar */}
+              {activeSession && (
+                <div className="px-3 py-2 bg-[#090e1c] border-b border-slate-800/80 flex items-center space-x-1.5 overflow-x-auto flex-shrink-0 scrollbar-thin">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex-shrink-0 mr-1">Quick:</span>
+                  {snippets.map(snp => (
+                    <button
+                      key={snp.label}
+                      onClick={() => handleSendSnippet(snp.cmd)}
+                      className="px-2 py-1 bg-slate-800/80 hover:bg-violet-950/60 hover:text-violet-300 hover:border-violet-700/50 border border-slate-700/60 rounded-lg text-[10px] font-mono text-slate-300 whitespace-nowrap transition-all shadow-sm"
+                    >
+                      {snp.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Terminal Viewport */}
+              <div className="flex-1 relative overflow-hidden bg-[#050811] p-3">
+                {sessions.length === 0 ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+                    <span className="text-5xl">🖥️</span>
+                    <h3 className="text-sm font-bold text-white">Chưa Có Phiên Terminal Nào Mở</h3>
+                    <p className="text-xs text-slate-400 max-w-md">
+                      Chọn một máy chủ SSH ở danh sách bên trái và nhấn <span className="text-violet-400 font-bold">"Terminal"</span> để bắt đầu phiên làm việc dòng lệnh trực tiếp!
+                    </p>
+                    <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl text-left max-w-md font-mono text-[11px] text-slate-400 space-y-1.5">
+                      <div className="text-violet-400 font-bold">✨ Tiện ích vượt trội:</div>
+                      <div>• Không gian terminal siêu rộng, chữ to rõ ràng</div>
+                      <div>• Nút "◀ Thu Gọn" hoặc "⛶ Toàn Màn Hình" để mở rộng tối đa</div>
+                      <div>• Nút A- / A+ điều chỉnh cỡ chữ trực tiếp</div>
+                      <div>• Hỗ trợ mở nhiều tab terminal song song không đứt kết nối</div>
+                    </div>
+                  </div>
+                ) : (
+                  sessions.map(sess => (
+                    <div
+                      key={sess.id}
+                      ref={el => {
+                        if (el) containerRefs.current.set(sess.id, el);
+                        else containerRefs.current.delete(sess.id);
+                      }}
+                      className="w-full h-full"
+                      style={{ display: activeSessionId === sess.id ? 'block' : 'none' }}
+                    />
+                  ))
+                )}
+              </div>
+
+            </div>
+
+          </div>
+
+          {/* Server Modal */}
+          {isModalOpen && (
+            <SshServerModal
+              server={editingServer}
+              isOpen={isModalOpen}
+              onClose={() => {
+                setIsModalOpen(false);
+                setEditingServer(null);
+              }}
+              onSave={handleSaveServer}
+            />
+          )}
+
+        </div>
+      );
+    }
+
 
     // ================= SERVICE GRID CARD =================
     function ServiceGridCard({

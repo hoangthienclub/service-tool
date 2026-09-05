@@ -36,6 +36,7 @@ class EnvManager {
           customServices: Array.isArray(parsed.customServices) ? parsed.customServices : null,
           customCategories: Array.isArray(parsed.customCategories) ? parsed.customCategories : null,
           customTunnels: Array.isArray(parsed.customTunnels) ? parsed.customTunnels : [],
+          customSshServers: Array.isArray(parsed.customSshServers) ? parsed.customSshServers : [],
           customScripts: parsed.customScripts || {},
           globalScripts: Array.isArray(parsed.globalScripts) ? parsed.globalScripts : [],
           globalProfiles: parsed.globalProfiles || (parsed.globalEnv ? { default: { env: parsed.globalEnv } } : { default: { env: {} } }),
@@ -54,6 +55,7 @@ class EnvManager {
       customServices: null,
       customCategories: null,
       customTunnels: [],
+      customSshServers: [],
       customScripts: {},
       globalScripts: [],
       globalProfiles: { default: { env: {} } },
@@ -1719,6 +1721,60 @@ class EnvManager {
     const lenBefore = this.userConfig.customTunnels.length;
     this.userConfig.customTunnels = this.userConfig.customTunnels.filter(t => t.id !== tunnelId);
     if (this.userConfig.customTunnels.length !== lenBefore) {
+      this.saveUserConfig();
+      return true;
+    }
+    return false;
+  }
+
+  // ================= SSH SERVER MANAGEMENT =================
+  getSshServers() {
+    if (!Array.isArray(this.userConfig.customSshServers)) {
+      this.userConfig.customSshServers = [];
+    }
+    return this.userConfig.customSshServers;
+  }
+
+  saveSshServer(serverData) {
+    if (!Array.isArray(this.userConfig.customSshServers)) {
+      this.userConfig.customSshServers = [];
+    }
+    const servers = this.userConfig.customSshServers;
+    const serverId = serverData.id || `ssh-srv-${Date.now()}`;
+    const newServer = {
+      ...serverData,
+      id: serverId,
+      name: serverData.name || serverId,
+      host: serverData.host || '',
+      port: parseInt(serverData.port || 22, 10),
+      username: serverData.username || serverData.user || 'root',
+      authType: serverData.authType || 'password', // 'password' | 'key'
+      password: serverData.password || '',
+      sshKeyPath: serverData.sshKeyPath || serverData.identityFile || '',
+      identityFile: serverData.identityFile || serverData.sshKeyPath || '',
+      jumpHost: serverData.jumpHost || '',
+      group: serverData.group || 'Default',
+      description: serverData.description || '',
+      createdAt: serverData.createdAt || Date.now(),
+      updatedAt: Date.now()
+    };
+
+    const idx = servers.findIndex(s => s.id === serverId);
+    if (idx >= 0) {
+      servers[idx] = newServer;
+    } else {
+      servers.push(newServer);
+    }
+
+    this.saveUserConfig();
+    return newServer;
+  }
+
+  deleteSshServer(serverId) {
+    if (!Array.isArray(this.userConfig.customSshServers)) return false;
+    const lenBefore = this.userConfig.customSshServers.length;
+    this.userConfig.customSshServers = this.userConfig.customSshServers.filter(s => s.id !== serverId);
+    if (this.userConfig.customSshServers.length !== lenBefore) {
       this.saveUserConfig();
       return true;
     }

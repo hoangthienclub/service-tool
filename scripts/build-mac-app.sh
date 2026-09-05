@@ -35,7 +35,7 @@ cp -R "dist" "$APP_RESOURCES/"
 
 # Cài đặt / sao chép production node_modules
 mkdir -p "$APP_RESOURCES/node_modules"
-for dep in cors express cross-spawn tree-kill; do
+for dep in cors express cross-spawn tree-kill ssh2 ws safer-buffer; do
   if [ -d "node_modules/$dep" ]; then
     cp -R "node_modules/$dep" "$APP_RESOURCES/node_modules/"
   fi

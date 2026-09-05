@@ -20,7 +20,9 @@
     "cors": "^2.8.5",
     "cross-spawn": "^7.0.3",
     "express": "^4.19.2",
-    "tree-kill": "^1.2.2"
+    "ssh2": "^1.17.0",
+    "tree-kill": "^1.2.2",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

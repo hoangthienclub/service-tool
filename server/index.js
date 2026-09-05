@@ -7,6 +7,8 @@ const processManager = require('./services/process-manager');
 const taskRunner = require('./services/task-runner');
 const dialogHelper = require('./services/dialog-helper');
 const tunnelManager = require('./services/tunnel-manager');
+const sshManager = require('./services/ssh-manager');
+const sshTerminalServer = require('./services/ssh-terminal-server');
 
 const PORT = parseInt(process.env.PORT || '48899', 10);
 const DIST_DIR = path.resolve(__dirname, '../dist');
@@ -437,6 +439,89 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true, logs });
       }
 
+      // ================= SSH SERVER ROUTES =================
+      // GET /api/ssh/servers (List all servers)
+      if (pathname === '/api/ssh/servers' && method === 'GET') {
+        const servers = envManager.getSshServers();
+        return sendJson(res, 200, { success: true, servers });
+      }
+
+      // POST /api/ssh/servers (Create server)
+      if (pathname === '/api/ssh/servers' && method === 'POST') {
+        const body = await getRequestBody(req);
+        try {
+          const server = envManager.saveSshServer(body);
+          sendSseEvent('ssh-servers-updated', envManager.getSshServers());
+          return sendJson(res, 200, { success: true, server });
+        } catch (err) {
+          return sendJson(res, 400, { success: false, error: err.message });
+        }
+      }
+
+      // PUT /api/ssh/servers/:id (Update server)
+      const matchSshServerId = pathname.match(/^\/api\/ssh\/servers\/([^/]+)$/);
+      if (matchSshServerId && method === 'PUT') {
+        const serverId = decodeURIComponent(matchSshServerId[1]);
+        const body = await getRequestBody(req);
+        try {
+          const server = envManager.saveSshServer({ ...body, id: serverId });
+          sendSseEvent('ssh-servers-updated', envManager.getSshServers());
+          return sendJson(res, 200, { success: true, server });
+        } catch (err) {
+          return sendJson(res, 400, { success: false, error: err.message });
+        }
+      }
+
+      // DELETE /api/ssh/servers/:id (Delete server)
+      if (matchSshServerId && method === 'DELETE') {
+        const serverId = decodeURIComponent(matchSshServerId[1]);
+        const deleted = envManager.deleteSshServer(serverId);
+        sendSseEvent('ssh-servers-updated', envManager.getSshServers());
+        return sendJson(res, 200, { success: deleted });
+      }
+
+      // POST /api/ssh/servers/:id/test (Test connectivity)
+      const matchSshTest = pathname.match(/^\/api\/ssh\/servers\/([^/]+)\/test$/);
+      if (matchSshTest && method === 'POST') {
+        const serverId = decodeURIComponent(matchSshTest[1]);
+        const server = envManager.getSshServers().find(s => s.id === serverId);
+        if (!server) {
+          return sendJson(res, 404, { success: false, error: 'Máy chủ không tồn tại' });
+        }
+        const result = await sshManager.testConnection(server);
+        return sendJson(res, result.success ? 200 : 400, result);
+      }
+
+      // POST /api/ssh/servers/:id/open-native (Open macOS Terminal)
+      const matchSshOpenNative = pathname.match(/^\/api\/ssh\/servers\/([^/]+)\/open-native$/);
+      if (matchSshOpenNative && method === 'POST') {
+        const serverId = decodeURIComponent(matchSshOpenNative[1]);
+        const server = envManager.getSshServers().find(s => s.id === serverId);
+        if (!server) {
+          return sendJson(res, 404, { success: false, error: 'Máy chủ không tồn tại' });
+        }
+        try {
+          const result = await sshManager.openNativeTerminal(server);
+          return sendJson(res, 200, result);
+        } catch (err) {
+          return sendJson(res, 500, { success: false, error: err.message });
+        }
+      }
+
+      // POST /api/ssh/servers/:id/to-tunnel (Convert server to port forward tunnel)
+      const matchSshToTunnel = pathname.match(/^\/api\/ssh\/servers\/([^/]+)\/to-tunnel$/);
+      if (matchSshToTunnel && method === 'POST') {
+        const serverId = decodeURIComponent(matchSshToTunnel[1]);
+        const body = await getRequestBody(req);
+        try {
+          const tunnel = sshManager.convertToTunnel(serverId, body);
+          sendSseEvent('tunnels-updated', envManager.getTunnels());
+          return sendJson(res, 200, { success: true, tunnel });
+        } catch (err) {
+          return sendJson(res, 400, { success: false, error: err.message });
+        }
+      }
+
       // POST /api/services/reset (Reset to default 6 services)
       if (pathname === '/api/services/reset' && method === 'POST') {
         const services = envManager.resetServicesToDefault();
@@ -855,6 +940,16 @@ const server = http.createServer(async (req, res) => {
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Dashboard UI index.html not found');
+  }
+});
+
+// Handle WebSocket upgrade for interactive SSH terminal
+server.on('upgrade', (req, socket, head) => {
+  const parsedPath = url.parse(req.url).pathname;
+  if (parsedPath === '/ws/ssh') {
+    sshTerminalServer.handleUpgrade(req, socket, head);
+  } else {
+    socket.destroy();
   }
 });
 
