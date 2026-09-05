@@ -782,7 +782,7 @@
                   }`}
                 >
                   <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                  {!sidebarCollapsed && <span className="font-bold">🖥️ Service Monitor</span>}
+                  {!sidebarCollapsed && <span className="font-bold">Service Monitor</span>}
                 </button>
 
                 <button
@@ -794,7 +794,7 @@
                   }`}
                 >
                   <svg className="w-4 h-4 flex-shrink-0 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                  {!sidebarCollapsed && <span className="font-bold text-cyan-300">⚙️ Biến Môi Trường & Cấu Hình</span>}
+                  {!sidebarCollapsed && <span className="font-bold text-cyan-300">Biến Môi Trường & Cấu Hình</span>}
                 </button>
 
                 <button
@@ -806,7 +806,7 @@
                   }`}
                 >
                   <svg className="w-4 h-4 flex-shrink-0 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
-                  {!sidebarCollapsed && <span className="font-bold text-purple-300">🏷️ Quản Lý Danh Mục</span>}
+                  {!sidebarCollapsed && <span className="font-bold text-purple-300">Quản Lý Danh Mục</span>}
                 </button>
 
                 <button
@@ -818,7 +818,7 @@
                   }`}
                 >
                   <svg className="w-4 h-4 flex-shrink-0 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-                  {!sidebarCollapsed && <span className="font-bold text-emerald-300">🧩 Quản Lý Services</span>}
+                  {!sidebarCollapsed && <span className="font-bold text-emerald-300">Quản Lý Services</span>}
                 </button>
 
                 <button
@@ -830,7 +830,7 @@
                   }`}
                 >
                   <span className="text-base flex-shrink-0">📜</span>
-                  {!sidebarCollapsed && <span className="font-bold text-amber-300">📜 Quản Lý Scripts</span>}
+                  {!sidebarCollapsed && <span className="font-bold text-amber-300">Quản Lý Scripts</span>}
                 </button>
 
                 <button
@@ -842,7 +842,7 @@
                   }`}
                 >
                   <span className="text-base flex-shrink-0">🔀</span>
-                  {!sidebarCollapsed && <span className="font-bold text-cyan-300">🔀 Port Forwarding</span>}
+                  {!sidebarCollapsed && <span className="font-bold text-cyan-300">Port Forwarding</span>}
                 </button>
 
                 <button
@@ -854,7 +854,7 @@
                   }`}
                 >
                   <span className="text-base flex-shrink-0">💻</span>
-                  {!sidebarCollapsed && <span className="font-bold text-violet-300">💻 SSH Servers & Terminal</span>}
+                  {!sidebarCollapsed && <span className="font-bold text-violet-300">SSH Servers & Terminal</span>}
                 </button>
               </div>
 
@@ -4983,41 +4983,31 @@
         }
       };
 
-      const handleOpenNative = async (server) => {
-        try {
-          setActionLoading(prev => ({ ...prev, [server.id]: 'native' }));
-          const res = await fetch(`/api/ssh/servers/${encodeURIComponent(server.id)}/open-native`, { method: 'POST' });
-          const data = await res.json();
-          if (!data.success) {
-            alert('Lỗi: ' + (data.error || 'Không thể mở Terminal macOS'));
-          }
-        } catch (e) {
-          alert('Lỗi mở terminal: ' + e.message);
-        } finally {
-          setActionLoading(prev => ({ ...prev, [server.id]: null }));
-        }
-      };
-
       const handleConvertToTunnel = async (server) => {
-        const localPort = prompt(`Tạo Port Forwarding Tunnel từ ${server.name}\nNhập Local Port cần mở:`, '27017');
-        if (!localPort) return;
         try {
           setActionLoading(prev => ({ ...prev, [server.id]: 'tunnel' }));
-          const res = await fetch(`/api/ssh/servers/${encodeURIComponent(server.id)}/to-tunnel`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ localPort: parseInt(localPort, 10), remotePort: parseInt(localPort, 10) })
-          });
+          // Check if a tunnel for this SSH host already exists
+          const res = await fetch('/api/tunnels');
           const data = await res.json();
-          if (data.success) {
-            if (onNavigateToTunnels) onNavigateToTunnels();
-          } else {
-            alert('Lỗi: ' + (data.error || 'Không thể tạo tunnel'));
+          let existing = null;
+          if (data && data.success && Array.isArray(data.tunnels)) {
+            existing = data.tunnels.find(t => t.sshHost === server.host && (!server.username || t.sshUser === server.username));
+          }
+          if (!existing) {
+            // Auto-create a default port forward tunnel profile for this server
+            await fetch(`/api/ssh/servers/${encodeURIComponent(server.id)}/to-tunnel`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ localPort: 27017, remotePort: 27017 })
+            });
           }
         } catch (e) {
-          alert('Lỗi tạo tunnel: ' + e.message);
+          console.error('Lỗi khi chuẩn bị tunnel:', e);
         } finally {
           setActionLoading(prev => ({ ...prev, [server.id]: null }));
+          if (onNavigateToTunnels) {
+            onNavigateToTunnels();
+          }
         }
       };
 
@@ -5088,7 +5078,7 @@
                     )}
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Quản lý máy chủ, mở Terminal PTY tương tác 2 chiều (htop, vim) hoặc khởi chạy 1-click qua Native Terminal macOS
+                    Quản lý máy chủ và mở Terminal PTY tương tác 2 chiều (htop, vim) trực tiếp ngay trên ứng dụng
                   </p>
                 </div>
               </div>
@@ -5235,27 +5225,15 @@
 
                           {/* Streamlined Action Buttons */}
                           <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/50">
-                            <div className="flex items-center space-x-1">
-                              <button
-                                onClick={() => handleOpenNative(s)}
-                                disabled={actionLoading[s.id] === 'native'}
-                                className="px-2 py-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-[10px] font-semibold border border-slate-700 transition-colors flex items-center space-x-1"
-                                title="Mở trong Terminal.app hoặc iTerm2 ngoài macOS"
-                              >
-                                <span>⚡</span>
-                                <span>{actionLoading[s.id] === 'native' ? '...' : 'macOS'}</span>
-                              </button>
-
-                              <button
-                                onClick={() => handleConvertToTunnel(s)}
-                                disabled={actionLoading[s.id] === 'tunnel'}
-                                className="px-2 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 rounded-lg text-[10px] font-semibold border border-cyan-800/40 transition-colors flex items-center space-x-1"
-                                title="Tạo Port Forwarding Tunnel từ cấu hình này"
-                              >
-                                <span>🔀</span>
-                                <span>Tunnel</span>
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => handleConvertToTunnel(s)}
+                              disabled={actionLoading[s.id] === 'tunnel'}
+                              className="px-2.5 py-1 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 rounded-lg text-[10px] font-semibold border border-cyan-800/40 transition-colors flex items-center space-x-1"
+                              title="Chuyển sang cấu hình Port Forwarding cho máy chủ này"
+                            >
+                              <span>🔀</span>
+                              <span>{actionLoading[s.id] === 'tunnel' ? '...' : 'Port Forwarding'}</span>
+                            </button>
 
                             <button
                               onClick={() => handleOpenTerminal(s)}
