@@ -85,6 +85,8 @@ async function cleanupAndExit() {
   try {
     const processManager = require('./server/services/process-manager');
     await processManager.stopAll();
+    const tunnelManager = require('./server/services/tunnel-manager');
+    tunnelManager.stopAll();
   } catch (e) {
     console.error('Error during cleanup:', e);
   }

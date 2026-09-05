@@ -827,6 +827,18 @@
                   <span className="text-base flex-shrink-0">📜</span>
                   {!sidebarCollapsed && <span className="font-bold text-amber-300">📜 Quản Lý Scripts</span>}
                 </button>
+
+                <button
+                  onClick={() => setViewMode('tunnels')}
+                  className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    viewMode === 'tunnels'
+                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-600/30'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <span className="text-base flex-shrink-0">🔀</span>
+                  {!sidebarCollapsed && <span className="font-bold text-cyan-300">🔀 Port Forwarding</span>}
+                </button>
               </div>
 
               {/* Quick Tasks in Sidebar */}
@@ -1478,6 +1490,13 @@
               {/* ============= MODE 7: SCRIPTS MANAGER ============= */}
               {viewMode === 'scripts' && (
                 <ScriptsManagerPage
+                  services={services}
+                />
+              )}
+
+              {/* ============= MODE 8: PORT FORWARDING (SSH TUNNELS) ============= */}
+              {viewMode === 'tunnels' && (
+                <TunnelManagerPage
                   services={services}
                 />
               )}
@@ -3392,6 +3411,970 @@
       );
     }
 
+    // ================= TUNNEL MODAL =================
+    function TunnelModal({ tunnel, isOpen, onClose, onSave }) {
+      if (!isOpen) return null;
+
+      const [name, setName] = React.useState(tunnel?.name || '');
+      const [localPort, setLocalPort] = React.useState(tunnel?.localPort || 27017);
+      const [remoteHost, setRemoteHost] = React.useState(tunnel?.remoteHost || '127.0.0.1');
+      const [remotePort, setRemotePort] = React.useState(tunnel?.remotePort || 27017);
+      const [sshHost, setSshHost] = React.useState(tunnel?.sshHost || '');
+      const [sshPort, setSshPort] = React.useState(tunnel?.sshPort || 22);
+      const [sshUser, setSshUser] = React.useState(tunnel?.sshUser || 'root');
+      const [identityFile, setIdentityFile] = React.useState(tunnel?.identityFile || tunnel?.sshKeyPath || '');
+      const [authType, setAuthType] = React.useState(tunnel?.authType || (tunnel?.password ? 'password' : 'key'));
+      const [password, setPassword] = React.useState(tunnel?.password || '');
+      const [showPassword, setShowPassword] = React.useState(false);
+      const [jumpHost, setJumpHost] = React.useState(tunnel?.jumpHost || '');
+      const [autoStart, setAutoStart] = React.useState(tunnel?.autoStart || false);
+      const [checkingPort, setCheckingPort] = React.useState(false);
+      const [portStatus, setPortStatus] = React.useState(null);
+      const [browsingKey, setBrowsingKey] = React.useState(false);
+      const [saving, setSaving] = React.useState(false);
+      const [errorMsg, setErrorMsg] = React.useState('');
+
+      const presets = [
+        { label: '🍃 MongoDB', local: 27017, remoteHost: '127.0.0.1', remote: 27017, name: 'MongoDB Forward' },
+        { label: '⚡ Redis', local: 6379, remoteHost: '127.0.0.1', remote: 6379, name: 'Redis Forward' },
+        { label: '🐬 MySQL', local: 3306, remoteHost: '127.0.0.1', remote: 3306, name: 'MySQL Forward' },
+        { label: '🐘 Postgres', local: 5432, remoteHost: '127.0.0.1', remote: 5432, name: 'Postgres Forward' },
+        { label: '🌐 Web / API', local: 8080, remoteHost: '127.0.0.1', remote: 8080, name: 'Web 8080 Forward' },
+      ];
+
+      const applyPreset = (preset) => {
+        setLocalPort(preset.local);
+        setRemoteHost(preset.remoteHost);
+        setRemotePort(preset.remote);
+        if (!name) setName(preset.name);
+        setPortStatus(null);
+      };
+
+      const handleCheckPort = async () => {
+        if (!localPort) return;
+        setCheckingPort(true);
+        setPortStatus(null);
+        try {
+          const res = await fetch(`/api/tunnels/check-port/${localPort}`);
+          const data = await res.json();
+          if (data.available) {
+            setPortStatus({ available: true, message: `Port ${localPort} khả dụng` });
+          } else {
+            setPortStatus({ available: false, message: `Port ${localPort} đang bị chiếm dụng` });
+          }
+        } catch (e) {
+          setPortStatus({ available: false, message: 'Lỗi kiểm tra port: ' + e.message });
+        } finally {
+          setCheckingPort(false);
+        }
+      };
+
+      const handleBrowseKey = async () => {
+        try {
+          setBrowsingKey(true);
+          const res = await fetch('/api/browse-file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: 'Chọn SSH Private Key (id_rsa, id_ed25519, .pem):'
+            })
+          });
+          const data = await res.json();
+          if (data.success && data.fullPath) {
+            setIdentityFile(data.fullPath);
+          } else if (data.success && data.relativePath) {
+            setIdentityFile(data.relativePath);
+          }
+        } catch (e) {
+          setErrorMsg('Lỗi khi mở chọn file: ' + e.message);
+        } finally {
+          setBrowsingKey(false);
+        }
+      };
+
+      const handleSubmit = async (e) => {
+        e?.preventDefault();
+        if (!name.trim()) {
+          setErrorMsg('Vui lòng nhập tên Tunnel');
+          return;
+        }
+        if (!localPort) {
+          setErrorMsg('Vui lòng nhập Local Port');
+          return;
+        }
+        if (!remotePort) {
+          setErrorMsg('Vui lòng nhập Remote Port');
+          return;
+        }
+        if (!sshHost.trim()) {
+          setErrorMsg('Vui lòng nhập SSH Server Host');
+          return;
+        }
+        if (authType === 'password' && !password) {
+          setErrorMsg('Vui lòng nhập mật khẩu SSH');
+          return;
+        }
+
+        setSaving(true);
+        setErrorMsg('');
+        try {
+          await onSave({
+            id: tunnel?.id,
+            name: name.trim(),
+            localPort: Number(localPort),
+            remoteHost: remoteHost.trim() || '127.0.0.1',
+            remotePort: Number(remotePort),
+            sshHost: sshHost.trim(),
+            sshPort: Number(sshPort) || 22,
+            sshUser: sshUser.trim() || 'root',
+            authType: authType,
+            password: authType === 'password' ? password : '',
+            identityFile: authType === 'key' ? (identityFile.trim() || undefined) : undefined,
+            jumpHost: jumpHost.trim() || undefined,
+            autoStart: Boolean(autoStart)
+          });
+          onClose();
+        } catch (e) {
+          setErrorMsg(e.message || 'Lỗi khi lưu tunnel');
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#0b101e] border border-slate-700/80 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+              <div className="flex items-center space-x-3">
+                <span className="text-2xl p-2 rounded-xl bg-cyan-950/40 border border-cyan-800/40">🔀</span>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    {tunnel ? 'Chỉnh Sửa Cấu Hình Tunnel' : 'Thêm Port Forwarding / SSH Tunnel Mới'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Forward port từ máy local qua OpenSSH đến remote server an toàn
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
+              {errorMsg && (
+                <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-xl text-rose-300">
+                  {errorMsg}
+                </div>
+              )}
+
+              {/* Quick Presets */}
+              <div>
+                <label className="block text-slate-400 font-medium mb-1.5">⚡ Mẫu Nhanh (Presets):</label>
+                <div className="flex flex-wrap gap-2">
+                  {presets.map(p => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => applyPreset(p)}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 font-semibold transition-colors"
+                    >
+                      {p.label} ({p.local})
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tunnel Name */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Tên Gợi Nhớ <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Ví dụ: MongoDB Staging, Redis Dev, Internal Admin..."
+                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-sans"
+                  required
+                />
+              </div>
+
+              {/* Port Forwarding Section */}
+              <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+                <div className="font-bold text-slate-200 flex items-center space-x-2">
+                  <span>🎯</span>
+                  <span>Thiết Lập Forwarding (Local ➔ Remote)</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Local Port */}
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      Local Port (trên máy của bạn) <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="flex space-x-2">
+                      <input
+                        type="number"
+                        value={localPort}
+                        onChange={e => {
+                          setLocalPort(e.target.value);
+                          setPortStatus(null);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                        placeholder="27017"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCheckPort}
+                        disabled={checkingPort}
+                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 font-medium whitespace-nowrap transition-colors"
+                      >
+                        {checkingPort ? '...' : 'Kiểm tra'}
+                      </button>
+                    </div>
+                    {portStatus && (
+                      <div className={`mt-1.5 text-[11px] font-medium ${portStatus.available ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {portStatus.available ? '✔ ' : '✖ '} {portStatus.message}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Remote Target */}
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      Target Remote (Host : Port) <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        value={remoteHost}
+                        onChange={e => setRemoteHost(e.target.value)}
+                        className="w-2/3 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                        placeholder="127.0.0.1"
+                        required
+                      />
+                      <input
+                        type="number"
+                        value={remotePort}
+                        onChange={e => setRemotePort(e.target.value)}
+                        className="w-1/3 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                        placeholder="27017"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SSH Server Configuration */}
+              <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+                <div className="font-bold text-slate-200 flex items-center space-x-2">
+                  <span>🖥</span>
+                  <span>SSH Server / Bastion Host</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-slate-400 mb-1">
+                      SSH Host / IP <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={sshHost}
+                      onChange={e => setSshHost(e.target.value)}
+                      placeholder="bastion.example.com hoặc 10.0.0.1"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1">SSH Port</label>
+                    <input
+                      type="number"
+                      value={sshPort}
+                      onChange={e => setSshPort(e.target.value)}
+                      placeholder="22"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">SSH Username</label>
+                    <input
+                      type="text"
+                      value={sshUser}
+                      onChange={e => setSshUser(e.target.value)}
+                      placeholder="root hoặc ec2-user hoặc ubuntu"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1">Jump Host (ProxyJump -J, tùy chọn)</label>
+                    <input
+                      type="text"
+                      value={jumpHost}
+                      onChange={e => setJumpHost(e.target.value)}
+                      placeholder="jumpuser@jumpbox.example.com"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Authentication Method Selector */}
+                <div className="pt-1">
+                  <label className="block text-slate-300 font-semibold mb-2">
+                    Phương Thức Xác Thực SSH <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900/90 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setAuthType('key')}
+                      className={`py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center space-x-2 transition-all ${
+                        authType === 'key'
+                          ? 'bg-cyan-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <span>🔑</span>
+                      <span>SSH Private Key</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAuthType('password')}
+                      className={`py-2 px-3 rounded-lg font-bold text-xs flex items-center justify-center space-x-2 transition-all ${
+                        authType === 'password'
+                          ? 'bg-cyan-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <span>🔒</span>
+                      <span>Mật Khẩu (Password)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Conditional Fields based on authType */}
+                {authType === 'key' ? (
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      SSH Private Key File (identity file, ví dụ ~/.ssh/id_rsa hoặc id_ed25519)
+                    </label>
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        value={identityFile}
+                        onChange={e => setIdentityFile(e.target.value)}
+                        placeholder="/Users/username/.ssh/id_rsa hoặc id_ed25519"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleBrowseKey}
+                        disabled={browsingKey}
+                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 font-medium whitespace-nowrap transition-colors"
+                      >
+                        {browsingKey ? '...' : '📂 Chọn file'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      Mật Khẩu SSH (SSH Password) <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        placeholder="Nhập mật khẩu SSH của user..."
+                        className="w-full px-3 py-2 pr-10 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                        required={authType === 'password'}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs p-1"
+                        title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                      >
+                        {showPassword ? '🙈' : '👁️'}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Mật khẩu được truyền an toàn qua cơ chế SSH_ASKPASS nội bộ, không bao giờ in ra console.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Options */}
+              <div className="flex items-center space-x-3 p-3 bg-slate-900/40 rounded-xl border border-slate-800/80">
+                <input
+                  type="checkbox"
+                  id="autoStartCheckbox"
+                  checked={autoStart}
+                  onChange={e => setAutoStart(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-700 text-cyan-600 focus:ring-cyan-500 focus:ring-offset-slate-900"
+                />
+                <label htmlFor="autoStartCheckbox" className="text-slate-300 font-medium cursor-pointer">
+                  Tự động kết nối tunnel này khi khởi động ứng dụng
+                </label>
+              </div>
+
+              {/* Actions Footer */}
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold rounded-xl transition-colors"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-950/40 flex items-center space-x-2 transition-all disabled:opacity-50"
+                >
+                  <span>{saving ? '⏳ Đang lưu...' : '💾 Lưu Tunnel'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // ================= TUNNEL MANAGER PAGE =================
+    function TunnelManagerPage({ services }) {
+      const [tunnels, setTunnels] = React.useState([]);
+      const [tunnelLogs, setTunnelLogs] = React.useState({});
+      const [selectedTunnelId, setSelectedTunnelId] = React.useState(null);
+      const [isModalOpen, setIsModalOpen] = React.useState(false);
+      const [editingTunnel, setEditingTunnel] = React.useState(null);
+      const [loading, setLoading] = React.useState(false);
+      const [actionLoading, setActionLoading] = React.useState({});
+
+      const fetchTunnelLogs = async (tunnelId) => {
+        if (!tunnelId) return;
+        try {
+          const res = await fetch(`/api/tunnels/${encodeURIComponent(tunnelId)}/logs`);
+          const data = await res.json();
+          if (data.success && Array.isArray(data.logs)) {
+            setTunnelLogs(prev => ({
+              ...prev,
+              [tunnelId]: data.logs
+            }));
+          }
+        } catch (e) {
+          console.error('Lỗi tải logs tunnel:', e);
+        }
+      };
+
+      const fetchTunnels = async () => {
+        try {
+          setLoading(true);
+          const res = await fetch('/api/tunnels');
+          const data = await res.json();
+          if (data.success) {
+            setTunnels(data.tunnels || []);
+            if (!selectedTunnelId && data.tunnels && data.tunnels.length > 0) {
+              const firstId = data.tunnels[0].id;
+              setSelectedTunnelId(firstId);
+              fetchTunnelLogs(firstId);
+            }
+          }
+        } catch (e) {
+          console.error('Lỗi tải danh sách tunnels:', e);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      React.useEffect(() => {
+        if (selectedTunnelId) {
+          fetchTunnelLogs(selectedTunnelId);
+        }
+      }, [selectedTunnelId]);
+
+      React.useEffect(() => {
+        fetchTunnels();
+
+        const eventSource = new EventSource('/api/events');
+
+        eventSource.addEventListener('tunnel-status-changed', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            const tId = data.tunnelId || data.id;
+            if (tId) {
+              setTunnels(prev => prev.map(t => t.id === tId ? {
+                ...t,
+                status: data.status,
+                lastError: data.lastError || data.error,
+                pid: data.pid !== undefined ? data.pid : t.pid
+              } : t));
+            }
+          } catch (err) {}
+        });
+
+        eventSource.addEventListener('tunnel-log', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            const tId = data.tunnelId || data.id;
+            if (tId) {
+              setTunnelLogs(prev => ({
+                ...prev,
+                [tId]: [...(prev[tId] || []).slice(-500), { text: data.text, timestamp: data.timestamp || Date.now() }]
+              }));
+            }
+          } catch (err) {}
+        });
+
+        return () => eventSource.close();
+      }, []);
+
+      const handleSaveTunnel = async (tunnelData) => {
+        const url = tunnelData.id ? `/api/tunnels/${encodeURIComponent(tunnelData.id)}` : '/api/tunnels';
+        const method = tunnelData.id ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(tunnelData)
+        });
+        const data = await res.json();
+        if (data.success) {
+          setTunnels(data.tunnels || []);
+          if (!selectedTunnelId && data.tunnels?.length > 0) {
+            const newId = data.tunnels[data.tunnels.length - 1].id;
+            setSelectedTunnelId(newId);
+            fetchTunnelLogs(newId);
+          }
+        } else {
+          throw new Error(data.error || 'Lưu thất bại');
+        }
+      };
+
+      const handleDeleteTunnel = async (tunnelId) => {
+        if (!confirm('Bạn có chắc chắn muốn xóa SSH Tunnel này?')) return;
+        try {
+          const res = await fetch(`/api/tunnels/${encodeURIComponent(tunnelId)}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (data.success) {
+            setTunnels(data.tunnels || []);
+            if (selectedTunnelId === tunnelId) {
+              const remaining = data.tunnels || [];
+              const nextId = remaining.length > 0 ? remaining[0].id : null;
+              setSelectedTunnelId(nextId);
+              if (nextId) fetchTunnelLogs(nextId);
+            }
+          }
+        } catch (e) {
+          alert('Lỗi khi xóa: ' + e.message);
+        }
+      };
+
+      const handleStartTunnel = async (tunnelId) => {
+        try {
+          setSelectedTunnelId(tunnelId);
+          setActionLoading(prev => ({ ...prev, [tunnelId]: true }));
+          setTunnels(prev => prev.map(t => t.id === tunnelId ? { ...t, status: 'CONNECTING', lastError: null } : t));
+          const res = await fetch(`/api/tunnels/${encodeURIComponent(tunnelId)}/start`, { method: 'POST' });
+          const data = await res.json();
+          if (!data.success) {
+            const errMsg = data.error || 'Lỗi không xác định';
+            setTunnels(prev => prev.map(t => t.id === tunnelId ? { ...t, status: 'ERROR', lastError: errMsg } : t));
+            setTunnelLogs(prev => ({
+              ...prev,
+              [tunnelId]: [...(prev[tunnelId] || []), { text: `\x1b[31m✖ [Lỗi] ${errMsg}\x1b[0m\n`, timestamp: Date.now() }]
+            }));
+          } else {
+            await fetchTunnels();
+            await fetchTunnelLogs(tunnelId);
+          }
+        } catch (e) {
+          setTunnels(prev => prev.map(t => t.id === tunnelId ? { ...t, status: 'ERROR', lastError: e.message } : t));
+        } finally {
+          setActionLoading(prev => ({ ...prev, [tunnelId]: false }));
+        }
+      };
+
+      const handleKillTunnelPort = async (tunnelId) => {
+        try {
+          setActionLoading(prev => ({ ...prev, [tunnelId]: true }));
+          await fetch(`/api/tunnels/${encodeURIComponent(tunnelId)}/kill-port`, { method: 'POST' });
+          await fetchTunnels();
+          await fetchTunnelLogs(tunnelId);
+        } catch (e) {
+          console.error('Lỗi giải phóng port:', e);
+        } finally {
+          setActionLoading(prev => ({ ...prev, [tunnelId]: false }));
+        }
+      };
+
+      const handleStopTunnel = async (tunnelId) => {
+        try {
+          setActionLoading(prev => ({ ...prev, [tunnelId]: true }));
+          const res = await fetch(`/api/tunnels/${encodeURIComponent(tunnelId)}/stop`, { method: 'POST' });
+          const data = await res.json();
+          if (!data.success) {
+            alert('Lỗi khi ngắt kết nối: ' + (data.error || 'Lỗi không xác định'));
+          }
+          await fetchTunnels();
+          await fetchTunnelLogs(tunnelId);
+        } catch (e) {
+          alert('Lỗi ngắt kết nối: ' + e.message);
+        } finally {
+          setActionLoading(prev => ({ ...prev, [tunnelId]: false }));
+        }
+      };
+
+      const handleStartAll = async () => {
+        try {
+          const res = await fetch('/api/tunnels/start-all', { method: 'POST' });
+          const data = await res.json();
+          fetchTunnels();
+        } catch (e) {
+          alert('Lỗi khi kết nối tất cả: ' + e.message);
+        }
+      };
+
+      const handleStopAll = async () => {
+        try {
+          const res = await fetch('/api/tunnels/stop-all', { method: 'POST' });
+          const data = await res.json();
+          fetchTunnels();
+        } catch (e) {
+          alert('Lỗi khi ngắt tất cả: ' + e.message);
+        }
+      };
+
+      const selectedTunnel = tunnels.find(t => t.id === selectedTunnelId) || tunnels[0];
+      const selectedLogs = (selectedTunnel ? tunnelLogs[selectedTunnel.id] : null) || [];
+      const connectedCount = tunnels.filter(t => t.status === 'CONNECTED').length;
+
+      return (
+        <div className="flex-1 flex flex-col p-6 max-w-[1900px] mx-auto w-full h-[calc(100vh-80px)] overflow-hidden">
+          
+          {/* Top Header */}
+          <div className="flex items-center justify-between pb-5 border-b border-slate-800/80 mb-6 flex-shrink-0">
+            <div>
+              <div className="flex items-center space-x-3">
+                <span className="text-2xl">🔀</span>
+                <h1 className="text-xl font-bold text-white tracking-wide">Port Forwarding & SSH Tunnels</h1>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                  {tunnels.length} Tunnels
+                </span>
+                {connectedCount > 0 && (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center space-x-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>{connectedCount} Đang Kết Nối</span>
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Forward database từ xa (MongoDB, Redis, MySQL, Postgres...) về localhost an toàn qua OpenSSH tunnel
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              {tunnels.length > 0 && (
+                <>
+                  <button
+                    onClick={handleStartAll}
+                    className="px-3 py-2 text-xs font-semibold text-emerald-300 hover:text-white bg-emerald-950/40 hover:bg-emerald-900/60 rounded-xl border border-emerald-800/50 transition-colors flex items-center space-x-1.5"
+                  >
+                    <span>▶</span>
+                    <span>Kết Nối Tất Cả</span>
+                  </button>
+                  <button
+                    onClick={handleStopAll}
+                    className="px-3 py-2 text-xs font-semibold text-rose-300 hover:text-white bg-rose-950/40 hover:bg-rose-900/60 rounded-xl border border-rose-800/50 transition-colors flex items-center space-x-1.5"
+                  >
+                    <span>⏹</span>
+                    <span>Ngắt Tất Cả</span>
+                  </button>
+                </>
+              )}
+
+              <button
+                onClick={fetchTunnels}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 transition-colors flex items-center space-x-1.5"
+              >
+                <span>🔄</span>
+                <span>Làm Mới</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setEditingTunnel(null);
+                  setIsModalOpen(true);
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl shadow-lg shadow-cyan-950/40 flex items-center space-x-1.5 transition-all"
+              >
+                <span>➕</span>
+                <span>Thêm Tunnel Mới</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 2-Column Responsive Layout */}
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0 overflow-hidden">
+            
+            {/* Left Column: Tunnel Cards List (5 Cols) */}
+            <div className="lg:col-span-5 flex flex-col space-y-3 overflow-y-auto pr-1">
+              {loading && tunnels.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500">Đang tải danh sách tunnel...</div>
+              ) : tunnels.length === 0 ? (
+                <div className="p-8 bg-[#0b101e] rounded-2xl border border-slate-800 text-center flex flex-col items-center justify-center space-y-3">
+                  <span className="text-4xl">🔀</span>
+                  <span className="text-sm font-bold text-white">Chưa Có Port Forwarding Nào</span>
+                  <p className="text-xs text-slate-400 max-w-sm">
+                    Tạo SSH tunnel để kết nối an toàn tới MongoDB, Redis, Postgres từ xa về máy local của bạn!
+                  </p>
+                  <button
+                    onClick={() => {
+                      setEditingTunnel(null);
+                      setIsModalOpen(true);
+                    }}
+                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl shadow-md"
+                  >
+                    ➕ Thêm Tunnel Đầu Tiên
+                  </button>
+                </div>
+              ) : (
+                tunnels.map(t => {
+                  const isConnected = t.status === 'CONNECTED';
+                  const isConnecting = t.status === 'CONNECTING';
+                  const isError = t.status === 'ERROR';
+                  const isSelected = selectedTunnelId === t.id;
+
+                  return (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTunnelId(t.id)}
+                      className={`p-4 bg-[#0b101e] border rounded-2xl transition-all flex flex-col space-y-3 shadow-lg cursor-pointer ${
+                        isSelected ? 'border-cyan-500/80 ring-1 ring-cyan-500/40' : 'border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      {/* Top row: Name, status badge, edit/delete */}
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-3">
+                          <span className={`text-2xl p-2.5 rounded-xl border ${
+                            isConnected ? 'bg-emerald-950/40 border-emerald-800/40 text-emerald-400' :
+                            isConnecting ? 'bg-amber-950/40 border-amber-800/40 text-amber-400' :
+                            isError ? 'bg-rose-950/40 border-rose-800/40 text-rose-400' :
+                            'bg-slate-800/60 border-slate-700/50 text-slate-400'
+                          }`}>
+                            🔀
+                          </span>
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <h4 className="text-sm font-bold text-white">{t.name}</h4>
+                              {t.autoStart && (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-cyan-950/40 text-cyan-400 border border-cyan-800/40">
+                                  AUTO
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-2 mt-0.5">
+                              {isConnected && (
+                                <span className="text-[11px] font-bold text-emerald-400 flex items-center space-x-1">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                  <span>Đã kết nối (PID: {t.pid || 'Active'})</span>
+                                </span>
+                              )}
+                              {isConnecting && (
+                                <span className="text-[11px] font-bold text-amber-400 flex items-center space-x-1">
+                                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-spin"></span>
+                                  <span>Đang kết nối...</span>
+                                </span>
+                              )}
+                              {isError && (
+                                <span className="text-[11px] font-bold text-rose-400 flex items-center space-x-1">
+                                  <span>✖ Lỗi kết nối</span>
+                                </span>
+                              )}
+                              {(!isConnected && !isConnecting && !isError) && (
+                                <span className="text-[11px] font-medium text-slate-400">
+                                  ⏹ Đã dừng
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-1" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => {
+                              setEditingTunnel(t);
+                              setIsModalOpen(true);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 rounded-lg transition-colors"
+                            title="Chỉnh sửa"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTunnel(t.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors"
+                            title="Xóa"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Connection diagram */}
+                      <div className="p-2.5 bg-slate-950/70 rounded-xl border border-slate-800/80 font-mono text-[11px] flex flex-col space-y-1">
+                        <div className="flex items-center justify-between text-slate-300">
+                          <span className="text-cyan-400 font-bold">127.0.0.1:{t.localPort}</span>
+                          <span className="text-slate-500">➔</span>
+                          <span className="text-emerald-400 font-bold">{t.remoteHost}:{t.remotePort}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate flex items-center justify-between pt-1 border-t border-slate-800/50">
+                          <div className="flex items-center space-x-1 truncate">
+                            <span>via</span>
+                            <span className="text-slate-300">{t.sshUser}@{t.sshHost}:{t.sshPort}</span>
+                            {t.jumpHost && <span className="text-amber-400/90">(jump: {t.jumpHost})</span>}
+                          </div>
+                          <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded flex-shrink-0 ${
+                            t.authType === 'password'
+                              ? 'bg-amber-950/60 text-amber-300 border border-amber-800/40'
+                              : 'bg-cyan-950/60 text-cyan-300 border border-cyan-800/40'
+                          }`}>
+                            {t.authType === 'password' ? '🔒 Password' : '🔑 Key'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Error message snippet */}
+                      {/* Error message snippet with Kill Port button */}
+                      {isError && t.lastError && (
+                        <div className="p-2.5 bg-rose-950/40 border border-rose-900/60 rounded-xl text-xs flex items-center justify-between text-rose-300">
+                          <div className="flex items-center space-x-1.5 truncate">
+                            <span className="text-rose-400">✖</span>
+                            <span className="font-mono text-[11px] truncate">{t.lastError}</span>
+                          </div>
+                          <button
+                            onClick={() => handleKillTunnelPort(t.id)}
+                            disabled={actionLoading[t.id]}
+                            className="px-2 py-1 bg-rose-900/80 hover:bg-rose-800 text-white font-bold text-[10px] rounded-lg shadow whitespace-nowrap ml-2 flex-shrink-0"
+                            title="Giải phóng port đang bị chiếm dụng"
+                          >
+                            ⚡ Giải Phóng Port
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Bottom action row */}
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-xs" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => setSelectedTunnelId(t.id)}
+                          className={`text-[11px] font-semibold flex items-center space-x-1 ${
+                            isSelected ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <span>📜</span>
+                          <span>Xem Log</span>
+                        </button>
+
+                        {isConnected ? (
+                          <button
+                            onClick={() => handleStopTunnel(t.id)}
+                            disabled={actionLoading[t.id]}
+                            className="px-3.5 py-1.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 hover:text-white font-bold rounded-xl border border-rose-800/50 shadow-md flex items-center space-x-1.5 transition-all disabled:opacity-50"
+                          >
+                            <span>⏹</span>
+                            <span>Ngắt Kết Nối</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleStartTunnel(t.id)}
+                            disabled={actionLoading[t.id] || isConnecting}
+                            className="px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-md shadow-cyan-950/40 flex items-center space-x-1.5 transition-all disabled:opacity-50"
+                          >
+                            <span>{actionLoading[t.id] || isConnecting ? '⏳' : '▶'}</span>
+                            <span>{actionLoading[t.id] || isConnecting ? 'Đang kết nối...' : 'Kết Nối'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Right Column: Console Log Terminal (7 Cols) */}
+            <div className="lg:col-span-7 flex flex-col bg-terminalBg border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+              <div className="p-3.5 bg-[#080d1a] border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <span className="font-mono text-xs font-bold text-white">OpenSSH Tunnel Console</span>
+                  {selectedTunnel && (
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 rounded-full">
+                      {selectedTunnel.name} (127.0.0.1:{selectedTunnel.localPort})
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      if (selectedTunnel) {
+                        setTunnelLogs(prev => ({ ...prev, [selectedTunnel.id]: [] }));
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-semibold rounded-lg border border-slate-700 transition-colors"
+                  >
+                    🗑 Xóa Log
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 p-3 overflow-hidden flex flex-col">
+                <TerminalView
+                  logs={selectedLogs}
+                  serviceName={selectedTunnel ? `Tunnel: ${selectedTunnel.name}` : 'SSH Tunnel Manager'}
+                  onClear={() => {
+                    if (selectedTunnel) {
+                      setTunnelLogs(prev => ({ ...prev, [selectedTunnel.id]: [] }));
+                    }
+                  }}
+                  isFullHeight={true}
+                  className="h-full"
+                />
+              </div>
+            </div>
+
+          </div>
+
+          {/* Modal */}
+          {isModalOpen && (
+            <TunnelModal
+              tunnel={editingTunnel}
+              isOpen={isModalOpen}
+              onClose={() => {
+                setIsModalOpen(false);
+                setEditingTunnel(null);
+              }}
+              onSave={handleSaveTunnel}
+            />
+          )}
+
+        </div>
+      );
+    }
+
     // ================= SERVICE GRID CARD =================
     function ServiceGridCard({
       service,
@@ -3445,6 +4428,15 @@
                     >
                       <span>🐧</span>
                       <span>WSL2</span>
+                    </span>
+                  )}
+                  {service.requiredTunnelId && (
+                    <span
+                      className="px-1.5 py-0.5 bg-cyan-950/80 text-cyan-300 border border-cyan-600/40 rounded text-[10px] font-mono font-bold flex items-center space-x-1"
+                      title="Tự động kết nối SSH Tunnel khi khởi động service"
+                    >
+                      <span>🔀</span>
+                      <span>SSH Tunnel</span>
                     </span>
                   )}
                 </div>
@@ -5259,7 +6251,18 @@
           : ''
       );
       const [inspecting, setInspecting] = useState(false);
+      const [requiredTunnelId, setRequiredTunnelId] = useState(service?.requiredTunnelId || '');
+      const [availableTunnels, setAvailableTunnels] = useState([]);
       const [error, setError] = useState('');
+
+      useEffect(() => {
+        fetch('/api/tunnels')
+          .then(r => r.json())
+          .then(data => {
+            if (data.success && data.tunnels) setAvailableTunnels(data.tunnels);
+          })
+          .catch(() => {});
+      }, []);
 
       useEffect(() => {
         fetch('/api/wsl/distros')
@@ -5438,7 +6441,8 @@
             isWsl: isWsl,
             wslDistro: wslDistro,
             wslPath: cwd.trim(),
-            defaultEnv: detectedEnv
+            defaultEnv: detectedEnv,
+            requiredTunnelId: requiredTunnelId || null
           });
         } catch (err) {
           setError(err.message);
@@ -5909,6 +6913,31 @@
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Optional SSH Tunnel Association */}
+              <div className="bg-[#050811] p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm">🔀</span>
+                  <label className="text-xs font-bold text-slate-200">
+                    SSH Tunnel Phụ Thuộc (Tùy chọn)
+                  </label>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Tự động kết nối SSH tunnel này khi khởi động service (ví dụ: DB MongoDB, Redis từ xa).
+                </p>
+                <select
+                  value={requiredTunnelId || ''}
+                  onChange={(e) => setRequiredTunnelId(e.target.value)}
+                  className="w-full bg-[#0b101c] border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-500 cursor-pointer"
+                >
+                  <option value="">-- Không yêu cầu SSH Tunnel --</option>
+                  {availableTunnels.map(t => (
+                    <option key={t.id} value={t.id}>
+                      🔀 {t.name} (127.0.0.1:{t.localPort} ➔ {t.remoteHost}:{t.remotePort})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">

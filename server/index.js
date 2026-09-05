@@ -6,6 +6,7 @@ const envManager = require('./services/env-manager');
 const processManager = require('./services/process-manager');
 const taskRunner = require('./services/task-runner');
 const dialogHelper = require('./services/dialog-helper');
+const tunnelManager = require('./services/tunnel-manager');
 
 const PORT = parseInt(process.env.PORT || '48899', 10);
 const DIST_DIR = path.resolve(__dirname, '../dist');
@@ -28,6 +29,8 @@ function sendSseEvent(eventType, data) {
 processManager.on('log', (data) => sendSseEvent('service-log', data));
 processManager.on('status-change', (data) => sendSseEvent('status-change', data));
 processManager.on('log-cleared', (data) => sendSseEvent('log-cleared', data));
+tunnelManager.on('tunnel-status-changed', (data) => sendSseEvent('tunnel-status-changed', data));
+tunnelManager.on('tunnel-log', (data) => sendSseEvent('tunnel-log', data));
 
 taskRunner.on('task-start', (data) => sendSseEvent('task-start', data));
 taskRunner.on('task-log', (data) => sendSseEvent('task-log', data));
@@ -306,6 +309,132 @@ const server = http.createServer(async (req, res) => {
         } catch (err) {
           return sendJson(res, 400, { success: false, error: err.message });
         }
+      }
+
+      // ================= TUNNEL ENDPOINTS =================
+      // GET /api/tunnels (List all tunnels with live statuses)
+      if (pathname === '/api/tunnels' && method === 'GET') {
+        const tunnels = envManager.getTunnels();
+        await tunnelManager.syncAllTunnels(tunnels);
+        const statuses = tunnelManager.getAllStatuses();
+        const tunnelsWithStatus = tunnels.map(t => {
+          const s = statuses[t.id] || { status: 'STOPPED', pid: null, error: null };
+          return {
+            ...t,
+            status: s.status,
+            pid: s.pid,
+            lastError: s.error,
+            statusInfo: s
+          };
+        });
+        return sendJson(res, 200, { success: true, tunnels: tunnelsWithStatus });
+      }
+
+      // POST /api/tunnels (Create or update tunnel)
+      if (pathname === '/api/tunnels' && method === 'POST') {
+        const body = await getRequestBody(req);
+        try {
+          const tunnel = envManager.saveTunnel(body);
+          sendSseEvent('tunnels-updated', envManager.getTunnels());
+          return sendJson(res, 200, { success: true, tunnel });
+        } catch (err) {
+          return sendJson(res, 400, { success: false, error: err.message });
+        }
+      }
+
+      // GET /api/tunnels/check-port/:port
+      const matchCheckPort = pathname.match(/^\/api\/tunnels\/check-port\/(\d+)$/);
+      if (matchCheckPort && method === 'GET') {
+        const port = parseInt(matchCheckPort[1], 10);
+        const result = await tunnelManager.checkPortInUse(port);
+        return sendJson(res, 200, { success: true, ...result });
+      }
+
+      // POST /api/tunnels/start-all
+      if (pathname === '/api/tunnels/start-all' && method === 'POST') {
+        const tunnels = envManager.getTunnels();
+        const results = {};
+        for (const t of tunnels) {
+          try {
+            results[t.id] = await tunnelManager.startTunnel(t);
+          } catch (e) {
+            results[t.id] = { success: false, error: e.message };
+          }
+        }
+        return sendJson(res, 200, { success: true, results });
+      }
+
+      // POST /api/tunnels/stop-all
+      if (pathname === '/api/tunnels/stop-all' && method === 'POST') {
+        tunnelManager.stopAll();
+        return sendJson(res, 200, { success: true });
+      }
+
+      // PUT /api/tunnels/:id (Update tunnel)
+      const matchTunnelId = pathname.match(/^\/api\/tunnels\/([^/]+)$/);
+      if (matchTunnelId && method === 'PUT') {
+        const tunnelId = decodeURIComponent(matchTunnelId[1]);
+        const body = await getRequestBody(req);
+        try {
+          const tunnel = envManager.saveTunnel({ ...body, id: tunnelId });
+          sendSseEvent('tunnels-updated', envManager.getTunnels());
+          return sendJson(res, 200, { success: true, tunnel });
+        } catch (err) {
+          return sendJson(res, 400, { success: false, error: err.message });
+        }
+      }
+
+      // DELETE /api/tunnels/:id (Delete tunnel)
+      if (matchTunnelId && method === 'DELETE') {
+        const tunnelId = decodeURIComponent(matchTunnelId[1]);
+        await tunnelManager.stopTunnel(tunnelId);
+        const deleted = envManager.deleteTunnel(tunnelId);
+        sendSseEvent('tunnels-updated', envManager.getTunnels());
+        return sendJson(res, 200, { success: deleted });
+      }
+
+      // POST /api/tunnels/:id/start
+      const matchTunnelStart = pathname.match(/^\/api\/tunnels\/([^/]+)\/start$/);
+      if (matchTunnelStart && method === 'POST') {
+        const tunnelId = decodeURIComponent(matchTunnelStart[1]);
+        const tunnel = envManager.getTunnels().find(t => t.id === tunnelId);
+        if (!tunnel) {
+          return sendJson(res, 404, { success: false, error: 'Tunnel không tồn tại' });
+        }
+        try {
+          const result = await tunnelManager.startTunnel(tunnel);
+          return sendJson(res, 200, { success: true, ...result });
+        } catch (e) {
+          return sendJson(res, 400, { success: false, error: e.message });
+        }
+      }
+
+      // POST /api/tunnels/:id/stop
+      const matchTunnelStop = pathname.match(/^\/api\/tunnels\/([^/]+)\/stop$/);
+      if (matchTunnelStop && method === 'POST') {
+        const tunnelId = decodeURIComponent(matchTunnelStop[1]);
+        const result = await tunnelManager.stopTunnel(tunnelId);
+        return sendJson(res, 200, { success: true, ...result });
+      }
+
+      // POST /api/tunnels/:id/kill-port
+      const matchTunnelKillPort = pathname.match(/^\/api\/tunnels\/([^/]+)\/kill-port$/);
+      if (matchTunnelKillPort && method === 'POST') {
+        const tunnelId = decodeURIComponent(matchTunnelKillPort[1]);
+        const tunnel = envManager.getTunnels().find(t => t.id === tunnelId);
+        if (tunnel && tunnel.localPort) {
+          await tunnelManager.killPort(tunnel.localPort);
+        }
+        await tunnelManager.stopTunnel(tunnelId);
+        return sendJson(res, 200, { success: true, message: 'Đã giải phóng port' });
+      }
+
+      // GET /api/tunnels/:id/logs
+      const matchTunnelLogs = pathname.match(/^\/api\/tunnels\/([^/]+)\/logs$/);
+      if (matchTunnelLogs && method === 'GET') {
+        const tunnelId = decodeURIComponent(matchTunnelLogs[1]);
+        const logs = tunnelManager.getLogs(tunnelId);
+        return sendJson(res, 200, { success: true, logs });
       }
 
       // POST /api/services/reset (Reset to default 6 services)

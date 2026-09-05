@@ -163,6 +163,21 @@ class ProcessManager extends EventEmitter {
 
     this.appendLog(serviceId, `\x1b[36m[Dashboard] Đang chuẩn bị khởi động ${svc.name} (Profile: ${svc.activeProfile})...\x1b[0m\n`, 'system');
 
+    // Auto-start required SSH Tunnel if configured
+    if (svc.requiredTunnelId) {
+      try {
+        const tunnelManager = require('./tunnel-manager');
+        const tunnel = tunnelManager.getTunnel(svc.requiredTunnelId);
+        if (tunnel && tunnel.status !== 'CONNECTED') {
+          this.appendLog(serviceId, `\x1b[35m[Dashboard] Đang tự động kết nối SSH Tunnel: ${tunnel.name} (Port ${tunnel.localPort})...\x1b[0m\n`, 'system');
+          await tunnelManager.startTunnel(svc.requiredTunnelId);
+          this.appendLog(serviceId, `\x1b[32m✔ [Dashboard] SSH Tunnel ${tunnel.name} đã kết nối thành công!\x1b[0m\n`, 'system');
+        }
+      } catch (tunnelErr) {
+        this.appendLog(serviceId, `\x1b[33m⚠ [Dashboard] Cảnh báo: Không thể tự động kết nối SSH Tunnel (${tunnelErr.message})\x1b[0m\n`, 'system');
+      }
+    }
+
     const env = envManager.getEffectiveEnvForService(serviceId);
 
     // Auto-kill old occupying port before starting to avoid EADDRINUSE

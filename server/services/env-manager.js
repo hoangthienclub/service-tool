@@ -35,6 +35,7 @@ class EnvManager {
           customEnvOverrides: parsed.customEnvOverrides || {},
           customServices: Array.isArray(parsed.customServices) ? parsed.customServices : null,
           customCategories: Array.isArray(parsed.customCategories) ? parsed.customCategories : null,
+          customTunnels: Array.isArray(parsed.customTunnels) ? parsed.customTunnels : [],
           customScripts: parsed.customScripts || {},
           globalScripts: Array.isArray(parsed.globalScripts) ? parsed.globalScripts : [],
           globalProfiles: parsed.globalProfiles || (parsed.globalEnv ? { default: { env: parsed.globalEnv } } : { default: { env: {} } }),
@@ -52,6 +53,7 @@ class EnvManager {
       customEnvOverrides: {},
       customServices: null,
       customCategories: null,
+      customTunnels: [],
       customScripts: {},
       globalScripts: [],
       globalProfiles: { default: { env: {} } },
@@ -613,6 +615,7 @@ class EnvManager {
       wslDistro: serviceData.wslDistro || 'Ubuntu',
       wslPath: serviceData.wslPath || serviceData.cwd || '',
       defaultProfile: serviceData.defaultProfile || 'default',
+      requiredTunnelId: serviceData.requiredTunnelId || null,
       isCustom: true,
       profiles: serviceData.profiles || {
         default: {
@@ -658,7 +661,8 @@ class EnvManager {
       relativeDir: serviceData.relativeDir !== undefined ? serviceData.relativeDir : current.relativeDir,
       isWsl: serviceData.isWsl !== undefined ? !!serviceData.isWsl : !!current.isWsl,
       wslDistro: serviceData.wslDistro !== undefined ? serviceData.wslDistro : (current.wslDistro || 'Ubuntu'),
-      wslPath: serviceData.wslPath !== undefined ? serviceData.wslPath : (current.wslPath || current.cwd || '')
+      wslPath: serviceData.wslPath !== undefined ? serviceData.wslPath : (current.wslPath || current.cwd || ''),
+      requiredTunnelId: serviceData.requiredTunnelId !== undefined ? serviceData.requiredTunnelId : (current.requiredTunnelId || null)
     };
 
     if (serviceData.cwd !== undefined) {
@@ -1664,6 +1668,61 @@ class EnvManager {
     this.userConfig.globalScripts = this.userConfig.globalScripts.filter(s => s.id !== scriptId);
     this.saveUserConfig();
     return { success: true, scriptId };
+  }
+
+  // ================= TUNNEL MANAGEMENT =================
+  getTunnels() {
+    if (!Array.isArray(this.userConfig.customTunnels)) {
+      this.userConfig.customTunnels = [];
+    }
+    return this.userConfig.customTunnels;
+  }
+
+  saveTunnel(tunnelData) {
+    if (!Array.isArray(this.userConfig.customTunnels)) {
+      this.userConfig.customTunnels = [];
+    }
+    const tunnels = this.userConfig.customTunnels;
+    const tunnelId = tunnelData.id || `tunnel-${Date.now()}`;
+    const newTunnel = {
+      ...tunnelData,
+      id: tunnelId,
+      name: tunnelData.name || tunnelId,
+      localPort: parseInt(tunnelData.localPort, 10),
+      remoteHost: tunnelData.remoteHost || '127.0.0.1',
+      remotePort: parseInt(tunnelData.remotePort, 10),
+      sshHost: tunnelData.sshHost || '',
+      sshPort: parseInt(tunnelData.sshPort || 22, 10),
+      sshUser: tunnelData.sshUser || '',
+      authType: tunnelData.authType || 'key',
+      password: tunnelData.password || '',
+      sshKeyPath: tunnelData.sshKeyPath || tunnelData.identityFile || '',
+      identityFile: tunnelData.identityFile || tunnelData.sshKeyPath || '',
+      jumpHost: tunnelData.jumpHost || '',
+      autoStart: !!tunnelData.autoStart,
+      description: tunnelData.description || ''
+    };
+
+    const idx = tunnels.findIndex(t => t.id === tunnelId);
+    if (idx >= 0) {
+      tunnels[idx] = newTunnel;
+    } else {
+      tunnels.push(newTunnel);
+    }
+
+    this.saveUserConfig();
+    return newTunnel;
+  }
+
+  deleteTunnel(tunnelId) {
+    if (!Array.isArray(this.userConfig.customTunnels)) return false;
+    const lenBefore = this.userConfig.customTunnels.length;
+    this.userConfig.customTunnels = this.userConfig.customTunnels.filter(t => t.id !== tunnelId);
+    if (this.userConfig.customTunnels.length !== lenBefore) {
+      this.saveUserConfig();
+      return true;
+    }
+    return false;
   }
 }
 
