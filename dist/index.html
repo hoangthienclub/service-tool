@@ -590,6 +590,20 @@
         return data;
       };
 
+      const handleAssignCategoryServices = async (catId, serviceIds) => {
+        const res = await fetch(`/api/categories/${encodeURIComponent(catId)}/services`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serviceIds })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Gán services thất bại');
+        if (data.categories) setCategories(data.categories);
+        if (data.services) setServices(data.services);
+        await fetchServices();
+        return data;
+      };
+
       const handleCreateService = async (serviceData) => {
         const res = await fetch('/api/services', {
           method: 'POST',
@@ -1390,7 +1404,11 @@
                   onCreateCategory={handleCreateCategory}
                   onUpdateCategory={handleUpdateCategory}
                   onDeleteCategory={handleDeleteCategory}
+                  onAssignCategoryServices={handleAssignCategoryServices}
                   onReloadCategories={fetchCategories}
+                  onCreateService={handleCreateService}
+                  onUpdateService={handleUpdateService}
+                  onDeleteService={handleDeleteService}
                   onNavigateToServices={(catId) => {
                     setActiveCategory(catId);
                     setViewMode('grid');
@@ -3832,15 +3850,22 @@
     }
 
     // ================= CATEGORY MODAL (CREATE & EDIT) =================
-    function CategoryModal({ category, isOpen, onClose, onSave }) {
+    function CategoryModal({ category, services = [], isOpen, onClose, onSave }) {
       if (!isOpen) return null;
       const isEdit = !!category;
+
+      const initialServiceIds = isEdit && category?.id
+        ? services.filter(s => (s.group || s.category || '').toUpperCase() === category.id.toUpperCase()).map(s => s.id)
+        : [];
 
       const [id, setId] = useState(category?.id || '');
       const [name, setName] = useState(category?.name || '');
       const [description, setDescription] = useState(category?.description || '');
       const [icon, setIcon] = useState(category?.icon || '📁');
       const [color, setColor] = useState(category?.color || '#38bdf8');
+      const [selectedServiceIds, setSelectedServiceIds] = useState(initialServiceIds);
+      const [serviceSearch, setServiceSearch] = useState('');
+      const [isDropdownOpen, setIsDropdownOpen] = useState(false);
       const [error, setError] = useState('');
 
       const iconOptions = ['📁', '🖥️', '⚡', '⚙️', '🚪', '📦', '🤖', '🛡️', '💳', '📊', '🔔', '🌐', '🗄️', '🔍'];
@@ -3867,7 +3892,8 @@
             name: name.trim(),
             description: description.trim(),
             icon,
-            color
+            color,
+            serviceIds: selectedServiceIds
           });
           onClose();
         } catch (err) {
@@ -3927,6 +3953,149 @@
                   onChange={(e) => setDescription(e.target.value)}
                   className="w-full bg-[#050811] border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
                 />
+              </div>
+
+              {/* Multiple Dropdown for Available Services */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
+                    <span>🧩 Gán Services thuộc danh mục này:</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-800/40">
+                      {selectedServiceIds.length} đã chọn
+                    </span>
+                  </label>
+                  <div className="flex items-center space-x-2 text-[10px] font-mono">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedServiceIds(services.map(s => s.id))}
+                      className="text-cyan-400 hover:text-cyan-300 hover:underline"
+                    >
+                      Chọn tất cả
+                    </button>
+                    <span className="text-slate-600">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedServiceIds([])}
+                      className="text-rose-400 hover:text-rose-300 hover:underline"
+                    >
+                      Bỏ chọn
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dropdown Trigger Box */}
+                <div className="relative">
+                  <div
+                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                    className="w-full bg-[#050811] border border-slate-700 hover:border-slate-600 rounded-xl px-3 py-2 text-xs text-slate-300 cursor-pointer flex items-center justify-between min-h-[38px] transition-all"
+                  >
+                    <div className="flex flex-wrap gap-1 flex-1 pr-2">
+                      {selectedServiceIds.length === 0 ? (
+                        <span className="text-slate-500 italic">Nhấp để chọn microservices sẵn có...</span>
+                      ) : (
+                        selectedServiceIds.map(sId => {
+                          const sObj = services.find(s => s.id === sId);
+                          return (
+                            <span
+                              key={sId}
+                              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-[#0c1426] border border-cyan-800/40 text-[10px] font-mono text-cyan-200"
+                            >
+                              <span>{sObj?.name || sId}</span>
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedServiceIds(prev => prev.filter(id => id !== sId));
+                                }}
+                                className="text-slate-400 hover:text-rose-400 ml-1 cursor-pointer"
+                              >
+                                ×
+                              </span>
+                            </span>
+                          );
+                        })
+                      )}
+                    </div>
+                    <span className="text-slate-400 text-xs flex-shrink-0">{isDropdownOpen ? '▲' : '▼'}</span>
+                  </div>
+
+                  {/* Dropdown Menu */}
+                  {isDropdownOpen && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-[#090e1b] border border-slate-700 rounded-xl shadow-2xl p-2.5 space-y-2 animate-in fade-in duration-100 max-h-56 flex flex-col">
+                      {/* Search box */}
+                      <input
+                        type="text"
+                        placeholder="Tìm kiếm service theo tên, id, port..."
+                        value={serviceSearch}
+                        onChange={(e) => setServiceSearch(e.target.value)}
+                        className="w-full bg-[#050811] border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                        autoFocus
+                      />
+
+                      {/* Services Checkbox List */}
+                      <div className="overflow-y-auto space-y-1 pr-1 flex-1">
+                        {services
+                          .filter(s => {
+                            if (!serviceSearch.trim()) return true;
+                            const q = serviceSearch.toLowerCase();
+                            return s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q) || String(s.port).includes(q);
+                          })
+                          .map(s => {
+                            const isChecked = selectedServiceIds.includes(s.id);
+                            const currentGroup = (s.group || s.category || 'SERVICE').toUpperCase();
+                            const isCurrentCategory = currentGroup === (id || category?.id || '').toUpperCase();
+
+                            return (
+                              <label
+                                key={s.id}
+                                className={`flex items-center justify-between p-2 rounded-lg cursor-pointer text-xs transition-colors ${
+                                  isChecked ? 'bg-cyan-950/40 border border-cyan-800/40 text-white' : 'hover:bg-slate-800/50 text-slate-300 border border-transparent'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedServiceIds(prev => [...prev, s.id]);
+                                      } else {
+                                        setSelectedServiceIds(prev => prev.filter(selectedId => selectedId !== s.id));
+                                      }
+                                    }}
+                                    className="rounded border-slate-600 text-cyan-600 focus:ring-cyan-500 bg-[#050811]"
+                                  />
+                                  <span className="font-mono font-semibold">{s.name}</span>
+                                  {s.port && <span className="text-[10px] font-mono text-purple-300">:{s.port}</span>}
+                                </div>
+
+                                <div className="text-[10px] font-mono">
+                                  {isCurrentCategory ? (
+                                    <span className="text-emerald-400 bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-800/40">
+                                      Thuộc nhóm này
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded">
+                                      {currentGroup}
+                                    </span>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
+                      </div>
+
+                      <div className="pt-1.5 border-t border-slate-800 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setIsDropdownOpen(false)}
+                          className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-[11px] font-bold"
+                        >
+                          Xong
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Icon Picker */}
@@ -3992,6 +4161,178 @@
       );
     }
 
+    // ================= ASSIGN SERVICES MODAL (MULTIPLE DROPDOWN) =================
+    function AssignServicesModal({ category, services = [], isOpen, onClose, onSave }) {
+      if (!isOpen || !category) return null;
+      const catId = (category.id || '').toUpperCase();
+      const currentServiceIds = services
+        .filter(s => (s.group || s.category || '').toUpperCase() === catId)
+        .map(s => s.id);
+
+      const [selectedIds, setSelectedIds] = useState(currentServiceIds);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [saving, setSaving] = useState(false);
+
+      const filtered = services.filter(s => {
+        if (!searchQuery.trim()) return true;
+        const q = searchQuery.toLowerCase();
+        return s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q) || String(s.port).includes(q);
+      });
+
+      const handleSave = async () => {
+        setSaving(true);
+        try {
+          await onSave(category.id, selectedIds);
+          onClose();
+        } catch (err) {
+          alert('Lỗi: ' + err.message);
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-appCard border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#090d16]">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>{category.icon || '🏷️'}</span>
+                  <span>Gán Services cho: <span className="text-cyan-400 font-mono">{category.name || category.id}</span></span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Chọn các microservice có sẵn để đưa vào danh mục này.
+                </p>
+              </div>
+              <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded text-base">✕</button>
+            </div>
+
+            <div className="p-6 flex-1 overflow-hidden flex flex-col space-y-3">
+              {/* Search & Bulk actions */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="Tìm kiếm service theo tên, id, port..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-[#050811] border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                    autoFocus
+                  />
+                  <span className="absolute left-2.5 top-2.5 text-xs text-slate-500">🔍</span>
+                </div>
+                <div className="flex items-center space-x-2 text-xs font-mono">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(services.map(s => s.id))}
+                    className="px-2.5 py-1.5 rounded-lg bg-cyan-950/60 text-cyan-300 hover:bg-cyan-600 hover:text-white border border-cyan-800/50 transition-all font-semibold"
+                  >
+                    Chọn tất cả
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds([])}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-950/40 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-800/40 transition-all font-semibold"
+                  >
+                    Bỏ chọn
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-400 font-mono flex items-center justify-between px-1">
+                <span>Đã chọn: <strong className="text-cyan-300">{selectedIds.length}</strong> / {services.length} services</span>
+                {selectedIds.length > 0 && (
+                  <span className="text-slate-500 italic">
+                    ({selectedIds.slice(0, 3).map(id => (services.find(s => s.id === id)?.name || id)).join(', ')}{selectedIds.length > 3 ? '...' : ''})
+                  </span>
+                )}
+              </div>
+
+              {/* Multiple Dropdown / Checklist */}
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 border border-slate-800/80 rounded-xl p-2 bg-[#050811]">
+                {filtered.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-500 italic">
+                    Không tìm thấy service nào phù hợp.
+                  </div>
+                ) : (
+                  filtered.map(s => {
+                    const isChecked = selectedIds.includes(s.id);
+                    const currentGroup = (s.group || s.category || 'SERVICE').toUpperCase();
+                    const isCurrentCat = currentGroup === catId;
+
+                    return (
+                      <label
+                        key={s.id}
+                        className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all border ${
+                          isChecked
+                            ? 'bg-cyan-950/40 border-cyan-700/60 text-white shadow-sm'
+                            : 'hover:bg-slate-800/40 text-slate-300 border-slate-800/60'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedIds(prev => [...prev, s.id]);
+                              } else {
+                                setSelectedIds(prev => prev.filter(id => id !== s.id));
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-slate-700 text-cyan-600 focus:ring-cyan-500 bg-[#070b14]"
+                          />
+                          <div>
+                            <span className="font-mono font-bold">{s.name}</span>
+                            {s.port && <span className="ml-2 text-[10px] font-mono text-purple-300">:{s.port}</span>}
+                          </div>
+                        </div>
+
+                        <div className="text-[10px] font-mono">
+                          {isCurrentCat ? (
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-950/80 text-emerald-300 border border-emerald-800/50">
+                              Đang ở nhóm này
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-400 border border-slate-700">
+                              Nhóm: {currentGroup}
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-[#090d16]">
+              <span className="text-xs text-slate-400 font-mono">
+                {selectedIds.length} services được gán vào {category.name || category.id}
+              </span>
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleSave}
+                  className="px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl shadow-lg shadow-cyan-900/30 transition-all disabled:opacity-50"
+                >
+                  {saving ? 'Đang lưu...' : 'Lưu Gán Services'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ================= CATEGORY MANAGER PAGE =================
     function CategoryManagerPage({
       categories = [],
@@ -3999,10 +4340,17 @@
       onCreateCategory,
       onUpdateCategory,
       onDeleteCategory,
+      onAssignCategoryServices,
       onReloadCategories,
+      onCreateService,
+      onUpdateService,
+      onDeleteService,
       onNavigateToServices
     }) {
       const [modalCategory, setModalCategory] = useState(undefined); // undefined = closed, null = new, object = edit
+      const [assignModalCategory, setAssignModalCategory] = useState(null); // category for quick assign modal
+      const [modalService, setModalService] = useState(undefined); // undefined = closed, null = new, object = edit
+      const [targetCategory, setTargetCategory] = useState(null);
       const [searchQuery, setSearchQuery] = useState('');
       const [actionStatus, setActionStatus] = useState('');
 
@@ -4018,6 +4366,34 @@
           await onDeleteCategory(catId, 'SERVICE');
           setActionStatus(`✔ Đã xóa danh mục "${catName || catId}" thành công!`);
           setTimeout(() => setActionStatus(''), 3000);
+        } catch (e) {
+          alert('Lỗi: ' + e.message);
+        }
+      };
+
+      const handleUnassignService = async (catId, serviceId, serviceName) => {
+        if (!confirm(`Bạn có chắc muốn gỡ service "${serviceName || serviceId}" khỏi danh mục này?\n(Service sẽ được chuyển về nhóm mặc định "SERVICE")`)) return;
+        try {
+          if (onAssignCategoryServices) {
+            const currentCatServices = services.filter(s => (s.group || s.category || '').toUpperCase() === catId.toUpperCase());
+            const newIds = currentCatServices.map(s => s.id).filter(id => id !== serviceId);
+            await onAssignCategoryServices(catId, newIds);
+            setActionStatus(`✔ Đã gỡ service "${serviceName || serviceId}" khỏi danh mục!`);
+            setTimeout(() => setActionStatus(''), 3000);
+          }
+        } catch (e) {
+          alert('Lỗi: ' + e.message);
+        }
+      };
+
+      const handleDeleteServiceItem = async (serviceId, serviceName) => {
+        if (!confirm(`Bạn có chắc chắn muốn xóa service "${serviceName || serviceId}" không?`)) return;
+        try {
+          if (onDeleteService) {
+            await onDeleteService(serviceId);
+            setActionStatus(`✔ Đã xóa service "${serviceName || serviceId}" thành công!`);
+            setTimeout(() => setActionStatus(''), 3000);
+          }
         } catch (e) {
           alert('Lỗi: ' + e.message);
         }
@@ -4042,6 +4418,18 @@
             </div>
 
             <div className="flex items-center space-x-2.5">
+              {onCreateService && (
+                <button
+                  onClick={() => {
+                    setTargetCategory(null);
+                    setModalService(null);
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-900/30 transition-all flex items-center space-x-1.5"
+                >
+                  <span>➕</span>
+                  <span>Thêm Service Mới</span>
+                </button>
+              )}
               <button
                 onClick={() => setModalCategory(null)}
                 className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-purple-900/40 transition-all flex items-center space-x-1.5"
@@ -4127,23 +4515,58 @@
                       </p>
 
                       {/* Services Chips */}
-                      <div className="space-y-1 mb-4 bg-[#050811] p-2.5 rounded-xl border border-slate-800/80">
-                        <span className="text-[10px] font-mono uppercase font-bold text-slate-500 block">
-                          Microservices trong nhóm:
-                        </span>
-                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                      <div className="space-y-1.5 mb-4 bg-[#050811] p-3 rounded-xl border border-slate-800/80">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono uppercase font-bold text-slate-400 block">
+                            Microservices ({catServices.length}):
+                          </span>
+                          {onAssignCategoryServices && (
+                            <button
+                              onClick={() => setAssignModalCategory(cat)}
+                              className="px-2.5 py-1 text-[10px] font-semibold text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-600/70 rounded-lg border border-cyan-700/50 flex items-center space-x-1.5 transition-all shadow-sm"
+                              title={`Chọn các service có sẵn để gán vào nhóm ${cat.name || cat.id}`}
+                            >
+                              <span>🔗</span>
+                              <span>Gán Services</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pt-1">
                           {catServices.length === 0 ? (
-                            <span className="text-[11px] text-slate-500 italic">Chưa có service nào</span>
+                            <div className="w-full flex items-center justify-between py-1">
+                              <span className="text-[11px] text-slate-500 italic">Chưa có service nào</span>
+                              {onAssignCategoryServices && (
+                                <button
+                                  onClick={() => setAssignModalCategory(cat)}
+                                  className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono hover:underline"
+                                >
+                                  + Gán ngay
+                                </button>
+                              )}
+                            </div>
                           ) : (
                             catServices.map(s => (
-                              <span
+                              <div
                                 key={s.id}
-                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-[#0c1426] border border-slate-700/80 text-[10px] font-mono text-cyan-200"
+                                className="inline-flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-[#0c1426] hover:bg-[#14203a] border border-slate-700/80 hover:border-cyan-500/50 text-[10px] font-mono text-cyan-200 transition-all group/chip"
                               >
-                                <span>●</span>
-                                <span className="font-bold">{s.name}</span>
+                                <span className="text-emerald-400 text-[8px]">●</span>
+                                <span className="font-bold text-slate-200">{s.name}</span>
                                 {s.port && <span className="text-purple-300">:{s.port}</span>}
-                              </span>
+                                {onAssignCategoryServices && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleUnassignService(cat.id, s.id, s.name);
+                                    }}
+                                    className="p-0.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 rounded transition-colors opacity-0 group-hover/chip:opacity-100"
+                                    title={`Gỡ service ${s.name} khỏi danh mục ${cat.name || cat.id}`}
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
                             ))
                           )}
                         </div>
@@ -4184,10 +4607,11 @@
             )}
           </div>
 
-          {/* Modal */}
+          {/* Category Modal */}
           {modalCategory !== undefined && (
             <CategoryModal
               category={modalCategory}
+              services={services}
               isOpen={true}
               onClose={() => setModalCategory(undefined)}
               onSave={async (data) => {
@@ -4197,6 +4621,49 @@
                   await onCreateCategory(data);
                 }
                 setModalCategory(undefined);
+              }}
+            />
+          )}
+
+          {/* Service Modal (Create & Edit) */}
+          {modalService !== undefined && (
+            <ServiceModal
+              service={modalService}
+              categories={categories}
+              defaultCategory={targetCategory}
+              isOpen={true}
+              onClose={() => {
+                setModalService(undefined);
+                setTargetCategory(null);
+              }}
+              onSave={async (data) => {
+                if (modalService) {
+                  await onUpdateService(modalService.id, data);
+                  setActionStatus(`✔ Đã cập nhật service "${data.name}" thành công!`);
+                } else {
+                  await onCreateService(data);
+                  setActionStatus(`✔ Đã thêm service "${data.name}" thành công!`);
+                }
+                setTimeout(() => setActionStatus(''), 3000);
+                setModalService(undefined);
+                setTargetCategory(null);
+              }}
+            />
+          )}
+
+          {/* Assign Services Modal (Multiple Dropdown) */}
+          {assignModalCategory && (
+            <AssignServicesModal
+              category={assignModalCategory}
+              services={services}
+              isOpen={true}
+              onClose={() => setAssignModalCategory(null)}
+              onSave={async (catId, serviceIds) => {
+                if (onAssignCategoryServices) {
+                  await onAssignCategoryServices(catId, serviceIds);
+                  setActionStatus(`✔ Đã cập nhật services cho danh mục "${assignModalCategory.name || catId}" thành công!`);
+                  setTimeout(() => setActionStatus(''), 3000);
+                }
               }}
             />
           )}
@@ -4511,14 +4978,15 @@
     }
 
     // ================= SERVICE MODAL (CREATE & EDIT) =================
-    function ServiceModal({ service, categories = [], isOpen, onClose, onSave }) {
+    function ServiceModal({ service, categories = [], isOpen, onClose, onSave, defaultCategory = null }) {
       if (!isOpen) return null;
       const isEdit = !!service;
 
+      const initialCategory = service?.group || service?.category || defaultCategory || 'SERVICE';
       const [id, setId] = useState(service?.id || '');
       const [name, setName] = useState(service?.name || '');
-      const [group, setGroup] = useState(service?.group || service?.category || 'SERVICE');
-      const [category, setCategory] = useState(service?.category || service?.group || 'SERVICE');
+      const [group, setGroup] = useState(initialCategory);
+      const [category, setCategory] = useState(initialCategory);
       const [port, setPort] = useState(service?.port !== undefined && service?.port !== null ? service.port : '');
       const [script, setScript] = useState(service?.script || 'yarn');
       const [args, setArgs] = useState((service?.args || ['start:dev']).join(' '));

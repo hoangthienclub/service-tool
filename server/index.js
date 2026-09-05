@@ -254,7 +254,26 @@ const server = http.createServer(async (req, res) => {
         const body = await getRequestBody(req);
         try {
           const categories = envManager.createCategory(body);
-          return sendJson(res, 200, { success: true, categories });
+          sendSseEvent('categories-updated', categories);
+          if (Array.isArray(body.serviceIds)) {
+            sendSseEvent('services-updated', envManager.getServices());
+          }
+          return sendJson(res, 200, { success: true, categories, services: envManager.getServices() });
+        } catch (err) {
+          return sendJson(res, 400, { success: false, error: err.message });
+        }
+      }
+
+      // POST /api/categories/:id/services (Assign services to category)
+      const catServicesMatch = pathname.match(/^\/api\/categories\/([^/]+)\/services$/);
+      if (catServicesMatch && method === 'POST') {
+        const catId = decodeURIComponent(catServicesMatch[1]);
+        const body = await getRequestBody(req);
+        try {
+          const result = envManager.assignCategoryServices(catId, body.serviceIds || []);
+          sendSseEvent('categories-updated', result.categories);
+          sendSseEvent('services-updated', result.services);
+          return sendJson(res, 200, { success: true, ...result });
         } catch (err) {
           return sendJson(res, 400, { success: false, error: err.message });
         }
@@ -267,7 +286,11 @@ const server = http.createServer(async (req, res) => {
         const body = await getRequestBody(req);
         try {
           const categories = envManager.updateCategory(catId, body);
-          return sendJson(res, 200, { success: true, categories });
+          sendSseEvent('categories-updated', categories);
+          if (Array.isArray(body.serviceIds)) {
+            sendSseEvent('services-updated', envManager.getServices());
+          }
+          return sendJson(res, 200, { success: true, categories, services: envManager.getServices() });
         } catch (err) {
           return sendJson(res, 400, { success: false, error: err.message });
         }

@@ -125,6 +125,11 @@ class EnvManager {
 
     this.userConfig.customCategories = [...currentList, newCat];
     this.saveUserConfig();
+
+    if (Array.isArray(categoryData.serviceIds)) {
+      this.assignCategoryServices(id, categoryData.serviceIds);
+    }
+
     return this.getCategories();
   }
 
@@ -179,6 +184,11 @@ class EnvManager {
     }
 
     this.saveUserConfig();
+
+    if (Array.isArray(categoryData.serviceIds)) {
+      this.assignCategoryServices(newId, categoryData.serviceIds);
+    }
+
     return this.getCategories();
   }
 
@@ -203,6 +213,47 @@ class EnvManager {
 
     this.saveUserConfig();
     return this.getCategories();
+  }
+
+  assignCategoryServices(categoryId, serviceIds) {
+    if (!categoryId) throw new Error('Mã danh mục không được để trống!');
+    const targetCatId = categoryId.trim().toUpperCase();
+    const ids = Array.isArray(serviceIds) ? serviceIds : [];
+
+    let rawServices = this.getRawServicesList();
+    let changed = false;
+
+    const updatedServices = rawServices.map(s => {
+      const currentCat = (s.group || s.category || 'SERVICE').toUpperCase();
+      const shouldBeInCat = ids.includes(s.id);
+
+      if (shouldBeInCat && currentCat !== targetCatId) {
+        changed = true;
+        return {
+          ...s,
+          group: targetCatId,
+          category: targetCatId
+        };
+      } else if (!shouldBeInCat && currentCat === targetCatId) {
+        changed = true;
+        return {
+          ...s,
+          group: 'SERVICE',
+          category: 'SERVICE'
+        };
+      }
+      return s;
+    });
+
+    if (changed) {
+      this.userConfig.customServices = updatedServices;
+      this.saveUserConfig();
+    }
+
+    return {
+      categories: this.getCategories(),
+      services: this.getServices()
+    };
   }
 
   getTemplates() {
