@@ -1,0 +1,38 @@
+# =======================================================
+# Dashboard Specific .gitignore
+# =======================================================
+
+# 1. Environment & Sensitive Config Files
+.env
+.env.*
+*.env
+!*.env.example
+!.env.example
+data/user-profiles.json
+
+# 2. Node & Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 3. Packaging & Binaries
+release/
+*.app/
+*.zip
+*.dmg
+*.exe
+
+# 4. Logs & Process Outputs
+logs/
+*.log
+*.pid
+
+# 5. OS & Editor files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+.idea/
+.vscode/
