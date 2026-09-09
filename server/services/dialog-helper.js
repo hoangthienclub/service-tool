@@ -37,8 +37,11 @@ class DialogHelper {
     if (!posixPath || !this.isWsl()) return posixPath;
     return new Promise((resolve) => {
       exec(`wslpath -w "${posixPath.replace(/"/g, '\\"')}"`, (err, stdout) => {
-        if (err || !stdout) resolve(posixPath);
-        else resolve(stdout.trim());
+        if (!err && stdout && stdout.trim()) {
+          return resolve(stdout.trim());
+        }
+        const wslHelper = require('./wsl-helper');
+        resolve(wslHelper.resolveWslPathToWindows(posixPath, process.env.WSL_DISTRO_NAME || 'Ubuntu'));
       });
     });
   }
@@ -47,11 +50,15 @@ class DialogHelper {
    * Convert Windows path to WSL POSIX path
    */
   async toWslPath(winPath) {
-    if (!winPath || !this.isWsl()) return winPath;
+    if (!winPath) return '';
+    const wslHelper = require('./wsl-helper');
+    if (!this.isWsl()) return wslHelper.resolveWindowsPathToWsl(winPath);
     return new Promise((resolve) => {
       exec(`wslpath -u "${winPath.replace(/"/g, '\\"')}"`, (err, stdout) => {
-        if (err || !stdout) resolve(winPath.replace(/\\/g, '/'));
-        else resolve(stdout.trim());
+        if (!err && stdout && stdout.trim()) {
+          return resolve(stdout.trim());
+        }
+        resolve(wslHelper.resolveWindowsPathToWsl(winPath));
       });
     });
   }

@@ -138,18 +138,25 @@ class WslHelper {
   /**
    * Convert Windows UNC Path back to WSL Linux Path
    * e.g. \\wsl.localhost\Ubuntu\home\user\api -> /home/user/api
+   * e.g. Z:\home\thientran -> /home/thientran (when Z: is mapped to WSL)
    */
   resolveWindowsPathToWsl(winPath) {
     if (!winPath || typeof winPath !== 'string') return '';
-    const clean = winPath.trim().replace(/\\/g, '/');
+    let clean = winPath.trim().replace(/\\/g, '/');
 
     // Matches //wsl.localhost/Ubuntu/home/user or //wsl$/Ubuntu/home/user
-    const wslMatch = clean.match(/^\/\/(?:wsl\.localhost|wsl\$)\/[^\/]+(\/.*)$/i);
+    const wslMatch = clean.match(/^\/\/(?:wsl\.localhost|wsl\$)\/[^\/]+(\/.*)?$/i);
     if (wslMatch) {
-      return wslMatch[1];
+      return wslMatch[1] || '/';
     }
 
-    // Matches C:/Users/... -> /mnt/c/Users/...
+    // Matches mapped network drive to WSL root, e.g. Z:/home/... or Z:/etc/...
+    const wslMappedMatch = clean.match(/^[a-zA-Z]:\/(home|usr|etc|var|opt|root|bin|sbin|tmp)([\/].*)?$/i);
+    if (wslMappedMatch) {
+      return `/${wslMappedMatch[1].toLowerCase()}${wslMappedMatch[2] || ''}`;
+    }
+
+    // Matches Windows physical drive: C:/Users/... -> /mnt/c/Users/...
     const driveMatch = clean.match(/^([a-zA-Z]):\/(.*)$/);
     if (driveMatch) {
       return `/mnt/${driveMatch[1].toLowerCase()}/${driveMatch[2]}`;
@@ -166,7 +173,8 @@ class WslHelper {
       return { success: false, error: 'Đường dẫn không hợp lệ', exists: false };
     }
 
-    const cleanLinuxPath = linuxPath.trim();
+    const normalizedLinuxPath = this.resolveWindowsPathToWsl(linuxPath);
+    const cleanLinuxPath = (normalizedLinuxPath || linuxPath).trim();
     
     // If Dashboard itself is running inside Linux/WSL2
     if (process.platform === 'linux') {
@@ -252,12 +260,41 @@ class WslHelper {
    */
   async listWslDirectories(distro = 'Ubuntu', requestedPath = '/home') {
     let cleanPath = (requestedPath || '/home').trim().replace(/\\/g, '/');
+    // Normalize if passed a UNC or Windows mapped path
+    cleanPath = this.resolveWindowsPathToWsl(cleanPath) || cleanPath;
     if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
     if (cleanPath.length > 1 && cleanPath.endsWith('/')) {
       cleanPath = cleanPath.slice(0, -1);
     }
 
     const parentOfCurrent = cleanPath === '/' ? '/' : path.posix.dirname(cleanPath);
+
+    // 0. If Dashboard itself is running inside Linux/WSL2, read locally directly
+    if (process.platform === 'linux' && fs.existsSync(cleanPath)) {
+      try {
+        const entries = fs.readdirSync(cleanPath, { withFileTypes: true });
+        const dirs = entries
+          .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+          .map(e => {
+            const dirFull = path.posix.join(cleanPath, e.name);
+            return {
+              name: e.name,
+              path: dirFull,
+              hasPackageJson: fs.existsSync(path.posix.join(dirFull, 'package.json')),
+              hasEnv: fs.existsSync(path.posix.join(dirFull, '.env'))
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        return {
+          success: true,
+          distro,
+          currentPath: cleanPath,
+          parentPath: parentOfCurrent,
+          directories: dirs
+        };
+      } catch (e) {}
+    }
 
     // 1. Try UNC path if running on Windows Host
     const uncPath = this.resolveWslPathToWindows(cleanPath, distro);
