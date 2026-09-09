@@ -284,8 +284,26 @@ class EnvManager {
       const currentProfile = allProfiles[activeProfileKey] || (Object.values(allProfiles)[0]) || { env: {} };
       
       // Calculate dynamic CWD
-      const effectiveCwd = customPaths[svc.id] || (svc.relativeDir ? path.resolve(root, svc.relativeDir) : svc.cwd || root);
-      const cwdExists = fs.existsSync(effectiveCwd);
+      let effectiveCwd = customPaths[svc.id] || (svc.relativeDir ? path.resolve(root, svc.relativeDir) : svc.cwd || root);
+      let cwdExists = false;
+
+      const isWsl = !!svc.isWsl;
+      const wslDistro = svc.wslDistro || 'Ubuntu';
+      const wslPath = svc.wslPath || (isWsl ? (customPaths[svc.id] || svc.cwd || '') : '');
+
+      if (isWsl) {
+        if (process.platform === 'linux') {
+          effectiveCwd = wslHelper.resolveWindowsPathToWsl(wslPath || effectiveCwd) || effectiveCwd;
+          cwdExists = fs.existsSync(effectiveCwd);
+        } else {
+          // On Windows Host: use UNC path to access WSL files directly
+          const winPath = wslHelper.resolveWslPathToWindows(wslPath || effectiveCwd, wslDistro);
+          effectiveCwd = winPath || effectiveCwd;
+          cwdExists = fs.existsSync(effectiveCwd);
+        }
+      } else {
+        cwdExists = fs.existsSync(effectiveCwd);
+      }
 
       // Get overrides specific to this service and profile
       const serviceOverrides = this.userConfig.customEnvOverrides[svc.id] || {};
@@ -380,7 +398,11 @@ class EnvManager {
         profiles: allProfiles,
         computedEnv,
         customScripts: this.getServiceScripts(svc.id),
-        isCustom: !!svc.isCustom
+        isCustom: !!svc.isCustom,
+        isWsl,
+        wslDistro,
+        wslPath,
+        requiredTunnelId: svc.requiredTunnelId || null
       };
     });
   }
@@ -426,7 +448,12 @@ class EnvManager {
       return { success: false, error: 'Đường dẫn không hợp lệ', exists: false };
     }
 
-    const isWsl = options.isWsl || dirPath.startsWith('/home/') || dirPath.startsWith('~/') || dirPath.startsWith('\\\\wsl') || dirPath.startsWith('//wsl');
+    const isWsl = options.isWsl || 
+      dirPath.startsWith('/home/') || 
+      dirPath.startsWith('~/') || 
+      dirPath.startsWith('\\\\wsl') || 
+      dirPath.startsWith('//wsl') ||
+      /^[a-zA-Z]:[\/\\](home|usr|etc|var|opt)/i.test(dirPath);
     const wslDistro = options.wslDistro || 'Ubuntu';
 
     if (isWsl) {

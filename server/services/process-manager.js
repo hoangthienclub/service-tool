@@ -216,28 +216,53 @@ class ProcessManager extends EventEmitter {
       let spawnCwd = svc.cwd;
       let spawnShell = true;
 
-      if (svc.isWsl && process.platform === 'win32') {
+      if (svc.isWsl) {
         const wslHelper = require('./wsl-helper');
         const distro = svc.wslDistro || 'Ubuntu';
         let rawPath = svc.wslPath || svc.cwd || '~';
         let linuxPath = wslHelper.resolveWindowsPathToWsl(rawPath);
         if (!linuxPath || linuxPath === '.') linuxPath = '~';
 
-        const envExports = Object.entries(spawnEnv)
-          .filter(([k]) => !['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PSMODULEPATH'].includes(k.toUpperCase()))
-          .map(([k, v]) => `export ${k}=${JSON.stringify(String(v))}`)
-          .join('; ');
+        if (process.platform === 'win32') {
+          // Dashboard is running on Windows Host, launching into WSL2
+          const envExports = Object.entries(spawnEnv)
+            .filter(([k]) => !['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PSMODULEPATH'].includes(k.toUpperCase()))
+            .map(([k, v]) => `export ${k}=${JSON.stringify(String(v))}`)
+            .join('; ');
 
-        const runCmd = `${svc.script} ${Array.isArray(svc.args) ? svc.args.join(' ') : (svc.args || '')}`;
-        // Fallback PATH for node/nvm/pnpm/yarn in case .bashrc returns early on non-interactive
-        const envInit = `export PATH=$PATH:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -n 1)/bin:$HOME/.local/share/pnpm:$HOME/.yarn/bin:$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin`;
-        const fullBashScript = [envInit, envExports, runCmd].filter(Boolean).join('; ');
+          const runCmd = `${svc.script} ${Array.isArray(svc.args) ? svc.args.join(' ') : (svc.args || '')}`;
+          // Fallback PATH for node/nvm/pnpm/yarn in case .bashrc returns early on non-interactive
+          const envInit = `export PATH=$PATH:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -n 1)/bin:$HOME/.local/share/pnpm:$HOME/.yarn/bin:$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin`;
+          const fullBashScript = [envInit, envExports, runCmd].filter(Boolean).join('; ');
 
-        spawnCmd = 'wsl.exe';
-        spawnArgs = ['-d', distro, '--cd', linuxPath, 'bash', '-l', '-c', fullBashScript];
-        spawnCwd = undefined;
-        spawnShell = false;
-        this.appendLog(serviceId, `\x1b[35m[WSL2] Khởi chạy trong Distro ${distro} tại ${linuxPath} (Login Shell)\x1b[0m\n`, 'system');
+          spawnCmd = 'wsl.exe';
+          spawnArgs = ['-d', distro, '--cd', linuxPath, 'bash', '-l', '-c', fullBashScript];
+          spawnCwd = undefined;
+          spawnShell = false;
+          this.appendLog(serviceId, `\x1b[35m[WSL2] Khởi chạy trong Distro ${distro} tại ${linuxPath} (Login Shell)\x1b[0m\n`, 'system');
+        } else {
+          // Dashboard is running inside Linux/WSL2
+          const currentDistro = process.env.WSL_DISTRO_NAME;
+          if (currentDistro && distro && currentDistro.toLowerCase() !== distro.toLowerCase()) {
+            const envExports = Object.entries(spawnEnv)
+              .filter(([k]) => !['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PSMODULEPATH'].includes(k.toUpperCase()))
+              .map(([k, v]) => `export ${k}=${JSON.stringify(String(v))}`)
+              .join('; ');
+            const runCmd = `${svc.script} ${Array.isArray(svc.args) ? svc.args.join(' ') : (svc.args || '')}`;
+            const envInit = `export PATH=$PATH:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -n 1)/bin:$HOME/.local/share/pnpm:$HOME/.yarn/bin:$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin`;
+            const fullBashScript = [envInit, envExports, runCmd].filter(Boolean).join('; ');
+
+            spawnCmd = 'wsl.exe';
+            spawnArgs = ['-d', distro, '--cd', linuxPath, 'bash', '-l', '-c', fullBashScript];
+            spawnCwd = undefined;
+            spawnShell = false;
+            this.appendLog(serviceId, `\x1b[35m[WSL2] Khởi chạy qua Distro ${distro} tại ${linuxPath}\x1b[0m\n`, 'system');
+          } else {
+            // Target is the same Linux/WSL environment: use resolved Linux CWD
+            spawnCwd = linuxPath;
+            this.appendLog(serviceId, `\x1b[35m[WSL2] Khởi chạy trực tiếp tại ${linuxPath}\x1b[0m\n`, 'system');
+          }
+        }
       }
 
       const child = spawn(spawnCmd, spawnArgs, {
@@ -488,10 +513,18 @@ class ProcessManager extends EventEmitter {
       const exec = require('child_process').exec;
       if (process.platform === 'win32') {
         const cmd = `for /f "tokens=5" %a in ('netstat -aon ^| findstr /r /c:":${numPort} *LISTENING"') do if not "%a"=="${myPid}" taskkill /f /t /pid %a 2>nul`;
-        exec(cmd, () => resolve(true));
+        exec(cmd, () => {
+          // Also cleanup WSL2 process if port is bound inside WSL
+          try {
+            exec(`wsl.exe sh -c "fuser -k -9 ${numPort}/tcp 2>/dev/null || pids=$(lsof -ti:${numPort} 2>/dev/null); [ -n \\\"$pids\\\" ] && kill -9 $pids 2>/dev/null || true"`, () => resolve(true));
+          } catch (e) {
+            resolve(true);
+          }
+        });
       } else {
         const cmd = `
-          pids=$(lsof -ti:${numPort} 2>/dev/null || fuser ${numPort}/tcp 2>/dev/null || true)
+          fuser -k -9 ${numPort}/tcp 2>/dev/null || true
+          pids=$(lsof -ti:${numPort} 2>/dev/null || true)
           for pid in $pids; do
             if [ -n "$pid" ] && [ "$pid" != "${myPid}" ]; then
               kill -9 "$pid" 2>/dev/null || true

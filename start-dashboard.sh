@@ -32,7 +32,8 @@ else
   if grep -qEi "(Microsoft|WSL)" /proc/version 2>/dev/null; then
     cmd.exe /c start msedge --app="http://localhost:$PORT" --window-size=1480,920 2>/dev/null || \
     cmd.exe /c start chrome --app="http://localhost:$PORT" --window-size=1480,920 2>/dev/null || \
-    cmd.exe /c start "http://localhost:$PORT" 2>/dev/null
+    cmd.exe /c start "" "http://localhost:$PORT" 2>/dev/null || \
+    explorer.exe "http://localhost:$PORT" 2>/dev/null
   elif command -v google-chrome &> /dev/null; then
     google-chrome --app="http://localhost:$PORT" --window-size=1480,920 &
   elif command -v open &> /dev/null; then
