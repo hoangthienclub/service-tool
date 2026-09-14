@@ -488,13 +488,44 @@ class ContainerManager {
         return;
       }
 
-      const { cmd, prefixArgs } = this._getDockerRunner();
-      // Try requested shell, fallback to sh
-      const finalArgs = [...prefixArgs, 'exec', '-i', '-e', 'TERM=xterm-256color', containerId, requestedShell];
+      // Shell resolution logic:
+      // If user requested bash, verify if bash exists in the container; if not, notify user and smoothly fallback to sh
+      // If user requested sh, directly exec sh.
+      let innerCmd;
+      if (requestedShell === 'bash') {
+        innerCmd = `if command -v bash >/dev/null 2>&1; then exec bash; else printf "\\r\\n\\033[33m[Lưu ý: Container không có /bin/bash, tự động chuyển sang /bin/sh]\\033[0m\\r\\n"; exec sh; fi`;
+      } else {
+        innerCmd = `exec sh`;
+      }
 
-      ws.send(`\r\n\x1b[36m➜ Đang mở phiên Shell (${requestedShell}) trong Container ${containerId}...\x1b[0m\r\n`);
+      // Allocate real interactive PTY using `script -qefc "docker exec -it ..."`
+      // This enables full interactive support: shell prompt ($ / #), tab-completion, color, and line editing.
+      const dockerExecStr = `docker exec -it -e TERM=xterm-256color ${containerId} sh -c '${innerCmd}'`;
 
-      const proc = spawn(cmd, finalArgs, {
+      const isWin = process.platform === 'win32';
+      let execCmd;
+      let execArgs;
+
+      if (!isWin) {
+        execCmd = 'script';
+        execArgs = ['-qefc', dockerExecStr, '/dev/null'];
+      } else {
+        try {
+          const { execSync } = require('child_process');
+          execSync('where.exe docker.exe', { stdio: 'ignore', timeout: 1000 });
+          execCmd = 'docker.exe';
+          execArgs = ['exec', '-it', '-e', 'TERM=xterm-256color', containerId, 'sh', '-c', innerCmd];
+        } catch (e) {
+          const distros = wslHelper.getDistros();
+          const targetDistro = (distros && distros.find(d => d.isDefault)?.name) || distros[0]?.name || 'Ubuntu-24.04';
+          execCmd = 'wsl.exe';
+          execArgs = ['-d', targetDistro, 'script', '-qefc', dockerExecStr, '/dev/null'];
+        }
+      }
+
+      ws.send(`\r\n\x1b[36m➜ Đang mở phiên Interactive Shell (${requestedShell}) trong Container ${containerId}...\x1b[0m\r\n`);
+
+      const proc = spawn(execCmd, execArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, TERM: 'xterm-256color' }
       });
@@ -534,6 +565,15 @@ class ContainerManager {
       });
 
       ws.on('message', (msg) => {
+        // Filter out JSON control messages like resize if received
+        const str = msg.toString();
+        try {
+          const parsed = JSON.parse(str);
+          if (parsed && parsed.type === 'resize') {
+            return;
+          }
+        } catch (e) {}
+
         if (proc.stdin && !proc.stdin.destroyed) {
           proc.stdin.write(msg);
         }

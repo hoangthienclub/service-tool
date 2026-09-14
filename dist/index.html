@@ -5685,6 +5685,7 @@
             if (fitAddon) {
               try { fitAddon.fit(); } catch (e) {}
             }
+            try { term.focus(); } catch (e) {}
           }, 100);
         };
 
@@ -5813,7 +5814,10 @@
             </div>
 
             {/* Terminal Viewport */}
-            <div className="flex-1 bg-[#050811] p-3 overflow-hidden">
+            <div
+              onClick={() => { try { termRef.current?.focus(); } catch (e) {} }}
+              className="flex-1 bg-[#050811] p-3 overflow-hidden cursor-text"
+            >
               <div ref={terminalContainerRef} className="w-full h-full" />
             </div>
           </div>
