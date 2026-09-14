@@ -843,37 +843,58 @@ class ContainerManager {
         innerCmd = `exec sh`;
       }
 
-      // Allocate real interactive PTY using `script -qefc "docker exec -it ..."`
-      // This enables full interactive support: shell prompt ($ / #), tab-completion, color, and line editing.
-      const dockerExecStr = `docker exec -it -e TERM=xterm-256color ${containerId} sh -c '${innerCmd}'`;
-
-      const isWin = process.platform === 'win32';
-      let execCmd;
-      let execArgs;
-
-      if (!isWin) {
-        execCmd = 'script';
-        execArgs = ['-qefc', dockerExecStr, '/dev/null'];
-      } else {
-        try {
-          const { execSync } = require('child_process');
-          execSync('where.exe docker.exe', { stdio: 'ignore', timeout: 1000 });
-          execCmd = 'docker.exe';
-          execArgs = ['exec', '-it', '-e', 'TERM=xterm-256color', containerId, 'sh', '-c', innerCmd];
-        } catch (e) {
-          const distros = wslHelper.getDistros();
-          const targetDistro = (distros && distros.find(d => d.isDefault)?.name) || distros[0]?.name || 'Ubuntu-24.04';
-          execCmd = 'wsl.exe';
-          execArgs = ['-d', targetDistro, 'script', '-qefc', dockerExecStr, '/dev/null'];
-        }
-      }
+      const cols = parsedUrl.searchParams.get('cols') || '120';
+      const rows = parsedUrl.searchParams.get('rows') || '32';
 
       ws.send(`\r\n\x1b[36m➜ Đang mở phiên Interactive Shell (${requestedShell}) trong Container ${containerId}...\x1b[0m\r\n`);
 
-      const proc = spawn(execCmd, execArgs, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, TERM: 'xterm-256color' }
-      });
+      const isWin = process.platform === 'win32';
+      let proc;
+
+      if (!isWin) {
+        // macOS & Linux: Use python3 pty.spawn to allocate real interactive PTY
+        let hasPython = false;
+        try {
+          const { execSync } = require('child_process');
+          execSync('which python3', { stdio: 'ignore', timeout: 1000 });
+          hasPython = true;
+        } catch {}
+
+        if (hasPython) {
+          const pyScript = `import pty, sys
+pty.spawn(["docker", "exec", "-it", "-e", "TERM=xterm-256color", "-e", "COLUMNS=${cols}", "-e", "LINES=${rows}", "${containerId}", "sh", "-c", """${innerCmd}"""])
+`;
+          proc = spawn('python3', ['-c', pyScript], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, TERM: 'xterm-256color' }
+          });
+        } else {
+          // Direct interactive execution with pipes if python3 is unavailable
+          proc = spawn('docker', ['exec', '-i', '-e', 'TERM=xterm-256color', '-e', `COLUMNS=${cols}`, '-e', `LINES=${rows}`, containerId, 'sh', '-c', innerCmd], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, TERM: 'xterm-256color' }
+          });
+        }
+      } else {
+        // Windows platform
+        try {
+          const { execSync } = require('child_process');
+          execSync('where.exe docker.exe', { stdio: 'ignore', timeout: 1000 });
+          proc = spawn('docker.exe', ['exec', '-i', '-e', 'TERM=xterm-256color', '-e', `COLUMNS=${cols}`, '-e', `LINES=${rows}`, containerId, 'sh', '-c', innerCmd], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, TERM: 'xterm-256color' }
+          });
+        } catch (e) {
+          const distro = 'Ubuntu-24.04';
+          const pyScript = `import pty, sys
+pty.spawn(["docker", "exec", "-it", "-e", "TERM=xterm-256color", "-e", "COLUMNS=${cols}", "-e", "LINES=${rows}", "${containerId}", "sh", "-c", """${innerCmd}"""])
+`;
+          proc = spawn('wsl.exe', ['-d', distro, 'python3', '-c', pyScript], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, TERM: 'xterm-256color' }
+          });
+        }
+      }
 
       let isClosed = false;
       const cleanup = () => {
