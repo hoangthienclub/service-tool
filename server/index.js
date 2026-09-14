@@ -9,6 +9,7 @@ const dialogHelper = require('./services/dialog-helper');
 const tunnelManager = require('./services/tunnel-manager');
 const sshManager = require('./services/ssh-manager');
 const sshTerminalServer = require('./services/ssh-terminal-server');
+const containerManager = require('./services/container-manager');
 
 const PORT = parseInt(process.env.PORT || '48899', 10);
 const DIST_DIR = path.resolve(__dirname, '../dist');
@@ -919,6 +920,95 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true, result });
       }
 
+      // ================= DOCKER CONTAINER ENDPOINTS =================
+      // GET /api/containers
+      if (pathname === '/api/containers' && method === 'GET') {
+        const all = parsedUrl.query.all !== 'false';
+        const result = await containerManager.listContainers(all);
+        return sendJson(res, 200, result);
+      }
+
+      // GET /api/containers/stats
+      if (pathname === '/api/containers/stats' && method === 'GET') {
+        const force = parsedUrl.query.force === 'true';
+        const stats = await containerManager.getContainerStats(force);
+        return sendJson(res, 200, { success: true, stats });
+      }
+
+      // POST /api/containers/start-all
+      if (pathname === '/api/containers/start-all' && method === 'POST') {
+        const result = await containerManager.startAll();
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/containers/stop-all
+      if (pathname === '/api/containers/stop-all' && method === 'POST') {
+        const result = await containerManager.stopAll();
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/containers/restart-all
+      if (pathname === '/api/containers/restart-all' && method === 'POST') {
+        const result = await containerManager.restartAll();
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/containers/prune
+      if (pathname === '/api/containers/prune' && method === 'POST') {
+        const result = await containerManager.pruneContainers();
+        return sendJson(res, 200, result);
+      }
+
+      // GET /api/containers/:id/logs
+      const matchContainerLogs = pathname.match(/^\/api\/containers\/([^/]+)\/logs$/);
+      if (matchContainerLogs && method === 'GET') {
+        const id = decodeURIComponent(matchContainerLogs[1]);
+        const tail = parseInt(parsedUrl.query.tail || '200', 10);
+        const result = await containerManager.getContainerLogs(id, tail);
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/containers/:id/start
+      const matchContainerStart = pathname.match(/^\/api\/containers\/([^/]+)\/start$/);
+      if (matchContainerStart && method === 'POST') {
+        const id = decodeURIComponent(matchContainerStart[1]);
+        const result = await containerManager.startContainer(id);
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/containers/:id/stop
+      const matchContainerStop = pathname.match(/^\/api\/containers\/([^/]+)\/stop$/);
+      if (matchContainerStop && method === 'POST') {
+        const id = decodeURIComponent(matchContainerStop[1]);
+        const result = await containerManager.stopContainer(id);
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/containers/:id/restart
+      const matchContainerRestart = pathname.match(/^\/api\/containers\/([^/]+)\/restart$/);
+      if (matchContainerRestart && method === 'POST') {
+        const id = decodeURIComponent(matchContainerRestart[1]);
+        const result = await containerManager.restartContainer(id);
+        return sendJson(res, 200, result);
+      }
+
+      // DELETE /api/containers/:id
+      const matchContainerDel = pathname.match(/^\/api\/containers\/([^/]+)$/);
+      if (matchContainerDel && method === 'DELETE') {
+        const id = decodeURIComponent(matchContainerDel[1]);
+        const force = parsedUrl.query.force === 'true';
+        const result = await containerManager.removeContainer(id, force);
+        return sendJson(res, 200, result);
+      }
+
+      // GET /api/containers/:id
+      const matchContainerGet = pathname.match(/^\/api\/containers\/([^/]+)$/);
+      if (matchContainerGet && method === 'GET') {
+        const id = decodeURIComponent(matchContainerGet[1]);
+        const result = await containerManager.inspectContainer(id);
+        return sendJson(res, 200, result);
+      }
+
       return sendJson(res, 404, { success: false, error: 'Endpoint not found' });
     } catch (err) {
       console.error('[API Error]:', err);
@@ -948,6 +1038,8 @@ server.on('upgrade', (req, socket, head) => {
   const parsedPath = url.parse(req.url).pathname;
   if (parsedPath === '/ws/ssh') {
     sshTerminalServer.handleUpgrade(req, socket, head);
+  } else if (parsedPath === '/ws/container-exec') {
+    containerManager.handleWsUpgrade(req, socket, head);
   } else {
     socket.destroy();
   }
