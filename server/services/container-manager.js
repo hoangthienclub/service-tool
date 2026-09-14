@@ -238,6 +238,7 @@ class ContainerManager {
               rawPorts: raw.Ports || '',
               ports,
               networks: raw.Networks || '',
+              mountsStr: raw.Mounts || '',
               composeProject: labels['com.docker.compose.project'] || null,
               composeService: labels['com.docker.compose.service'] || null,
               composeConfigFile: labels['com.docker.compose.project.config_files'] || null,
@@ -471,6 +472,350 @@ class ContainerManager {
       results[c.id] = await this.restartContainer(c.id);
     }
     return { success: true, results, count: running.length };
+  }
+
+  // ================= DOCKER CONTEXT HELPER =================
+  /**
+   * Helper: Retrieve lightweight container context (name, imageId, configImage, mounts)
+   * used for exact image and volume inUse cross-referencing without string truncation.
+   */
+  async _getContainersContext() {
+    try {
+      const psOutput = await this._execDocker(['ps', '-a', '-q']);
+      if (!psOutput || !psOutput.trim()) return [];
+      const ids = psOutput.trim().split(/\s+/).filter(Boolean);
+      if (ids.length === 0) return [];
+
+      const format = '{"name":"{{.Name}}","imageId":"{{.Image}}","configImage":"{{.Config.Image}}","mounts":{{json .Mounts}}}';
+      const inspectRaw = await this._execDocker(['inspect', ...ids, '--format', format], { timeout: 15000 });
+      if (!inspectRaw) return [];
+
+      return inspectRaw.trim().split('\n').filter(Boolean).map(line => {
+        try {
+          const c = JSON.parse(line);
+          return {
+            name: (c.name || '').replace(/^\//, ''),
+            imageId: (c.imageId || '').replace(/^sha256:/, ''),
+            configImage: c.configImage || '',
+            mounts: Array.isArray(c.mounts) ? c.mounts : []
+          };
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  _formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  _parseSizeToBytes(sizeStr) {
+    if (!sizeStr) return 0;
+    const match = String(sizeStr).trim().match(/^([\d.]+)\s*([a-zA-Z]+)?$/);
+    if (!match) return 0;
+    const val = parseFloat(match[1]);
+    const unit = (match[2] || 'b').toLowerCase();
+    if (unit.startsWith('t')) return val * 1024 * 1024 * 1024 * 1024;
+    if (unit.startsWith('g')) return val * 1024 * 1024 * 1024;
+    if (unit.startsWith('m')) return val * 1024 * 1024;
+    if (unit.startsWith('k')) return val * 1024;
+    return val;
+  }
+
+  // ================= DOCKER IMAGE MANAGEMENT =================
+  /**
+   * List all images with in-use status by inspecting containers
+   */
+  async listImages() {
+    const dockerCheck = await this.isDockerAvailable();
+    if (!dockerCheck.available) {
+      return { success: false, error: `Docker không sẵn sàng: ${dockerCheck.error}`, isAvailable: false, images: [] };
+    }
+
+    try {
+      const [imagesOutput, containerContext] = await Promise.all([
+        this._execDocker(['images', '--format', '{{json .}}']),
+        this._getContainersContext()
+      ]);
+
+      const rawImages = [];
+      if (imagesOutput) {
+        const lines = imagesOutput.split('\n').map(l => l.trim()).filter(Boolean);
+        for (const line of lines) {
+          try {
+            rawImages.push(JSON.parse(line));
+          } catch {}
+        }
+      }
+
+      // Count occurrences of each imageId to know if an ID is shared by multiple tags
+      const idCount = {};
+      rawImages.forEach(img => {
+        const id = (img.ID || '').replace(/^sha256:/, '').slice(0, 12);
+        idCount[id] = (idCount[id] || 0) + 1;
+      });
+
+      let totalBytes = 0;
+      const images = rawImages.map(raw => {
+        const shortId = (raw.ID || '').replace(/^sha256:/, '').slice(0, 12);
+        const repo = raw.Repository || '<none>';
+        const tag = raw.Tag || '<none>';
+        const fullRef = repo !== '<none>' && tag !== '<none>' ? `${repo}:${tag}` : repo;
+        const isDangling = repo === '<none>' || tag === '<none>';
+
+        const sizeStr = raw.Size || '0B';
+        totalBytes += this._parseSizeToBytes(raw.VirtualSize || sizeStr);
+
+        // Exact cross-reference with container images
+        const inUseBy = [];
+        for (const c of containerContext) {
+          if (!c.imageId.startsWith(shortId)) continue;
+          // If this image ID is shared among multiple tags, match specific tag
+          if (idCount[shortId] > 1 && repo !== '<none>') {
+            const matchesTag = c.configImage === fullRef ||
+              (tag === 'latest' && c.configImage === repo) ||
+              c.configImage.endsWith(`/${repo}:${tag}`) ||
+              (tag === 'latest' && c.configImage.endsWith(`/${repo}`));
+            if (!matchesTag) continue;
+          }
+          if (!inUseBy.includes(c.name)) inUseBy.push(c.name);
+        }
+
+        return {
+          id: shortId,
+          fullId: raw.ID || '',
+          repository: repo,
+          tag,
+          fullRef,
+          createdSince: raw.CreatedSince || '',
+          createdAt: raw.CreatedAt || '',
+          size: sizeStr,
+          isDangling,
+          inUse: inUseBy.length > 0,
+          inUseBy
+        };
+      });
+
+      const totalCount = images.length;
+      const inUseCount = images.filter(img => img.inUse).length;
+      const unusedCount = totalCount - inUseCount;
+      const danglingCount = images.filter(img => img.isDangling).length;
+      const totalSize = this._formatBytes(totalBytes);
+
+      return {
+        success: true,
+        isAvailable: true,
+        dockerVersion: dockerCheck.version,
+        images,
+        stats: {
+          total: totalCount,
+          totalCount,
+          inUse: inUseCount,
+          inUseCount,
+          unused: unusedCount,
+          unusedCount,
+          danglingCount,
+          totalSize
+        }
+      };
+    } catch (err) {
+      return { success: false, error: err.message, images: [] };
+    }
+  }
+
+  /**
+   * Inspect a specific Docker image
+   */
+  async inspectImage(id) {
+    try {
+      const output = await this._execDocker(['image', 'inspect', id]);
+      const data = JSON.parse(output);
+      return { success: true, image: data[0] || null };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Pull image from Docker registry
+   */
+  async pullImage(imageName) {
+    if (!imageName || !imageName.trim()) {
+      return { success: false, error: 'Tên image không được để trống' };
+    }
+    try {
+      const output = await this._execDocker(['pull', imageName.trim()], { timeout: 180000 });
+      return { success: true, output, message: `Đã kéo image "${imageName.trim()}" thành công` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Remove a Docker image
+   */
+  async removeImage(id, force = false) {
+    try {
+      const args = ['rmi'];
+      if (force) args.push('-f');
+      args.push(id);
+      const output = await this._execDocker(args);
+      return { success: true, id, output, message: `Đã xóa image ${id}` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Prune dangling or unused images
+   */
+  async pruneImages(all = false) {
+    try {
+      const args = ['image', 'prune', '-f'];
+      if (all) args.push('-a');
+      const output = await this._execDocker(args);
+      return { success: true, output, message: 'Đã dọn dẹp các images không sử dụng' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ================= DOCKER VOLUME MANAGEMENT =================
+  /**
+   * List all Docker volumes with mounted container associations
+   */
+  async listVolumes() {
+    const dockerCheck = await this.isDockerAvailable();
+    if (!dockerCheck.available) {
+      return { success: false, error: `Docker không sẵn sàng: ${dockerCheck.error}`, isAvailable: false, volumes: [] };
+    }
+
+    try {
+      const [volsOutput, containerContext] = await Promise.all([
+        this._execDocker(['volume', 'ls', '--format', '{{json .}}']),
+        this._getContainersContext()
+      ]);
+
+      const volumes = [];
+      if (volsOutput) {
+        const lines = volsOutput.split('\n').map(l => l.trim()).filter(Boolean);
+        for (const line of lines) {
+          try {
+            const raw = JSON.parse(line);
+            const name = raw.Name || '';
+            const inUseBy = [];
+
+            // Exact cross-reference with container mounts
+            for (const c of containerContext) {
+              if (c.mounts.some(m => m.Name === name)) {
+                if (!inUseBy.includes(c.name)) inUseBy.push(c.name);
+              }
+            }
+
+            volumes.push({
+              name,
+              driver: raw.Driver || 'local',
+              scope: raw.Scope || 'local',
+              mountpoint: raw.Mountpoint || '',
+              labels: raw.Labels ? this._parseLabels(raw.Labels) : {},
+              inUse: inUseBy.length > 0,
+              inUseBy
+            });
+          } catch (e) {}
+        }
+      }
+
+      const totalCount = volumes.length;
+      const inUseCount = volumes.filter(v => v.inUse).length;
+      const unusedCount = totalCount - inUseCount;
+
+      return {
+        success: true,
+        isAvailable: true,
+        dockerVersion: dockerCheck.version,
+        volumes,
+        stats: {
+          total: totalCount,
+          totalCount,
+          inUse: inUseCount,
+          inUseCount,
+          unused: unusedCount,
+          unusedCount
+        }
+      };
+    } catch (err) {
+      return { success: false, error: err.message, volumes: [] };
+    }
+  }
+
+  /**
+   * Inspect a Docker volume
+   */
+  async inspectVolume(name) {
+    try {
+      const output = await this._execDocker(['volume', 'inspect', name]);
+      const data = JSON.parse(output);
+      return { success: true, volume: data[0] || null };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Create a new Docker volume
+   */
+  async createVolume(name, driver = 'local', labels = {}) {
+    if (!name || !name.trim()) {
+      return { success: false, error: 'Tên volume không được để trống' };
+    }
+    try {
+      const args = ['volume', 'create'];
+      if (driver && driver !== 'local') {
+        args.push('--driver', driver);
+      }
+      for (const [k, v] of Object.entries(labels)) {
+        args.push('--label', `${k}=${v}`);
+      }
+      args.push(name.trim());
+      const output = await this._execDocker(args);
+      return { success: true, name: output.trim(), message: `Đã tạo volume "${name.trim()}" thành công` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Remove a Docker volume
+   */
+  async removeVolume(name, force = false) {
+    try {
+      const args = ['volume', 'rm'];
+      if (force) args.push('-f');
+      args.push(name);
+      await this._execDocker(args);
+      return { success: true, name, message: `Đã xóa volume "${name}"` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Prune unused Docker volumes
+   */
+  async pruneVolumes() {
+    try {
+      const output = await this._execDocker(['volume', 'prune', '-f']);
+      return { success: true, output, message: 'Đã dọn dẹp các volume không sử dụng' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
 
   /**

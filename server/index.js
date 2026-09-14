@@ -1009,6 +1009,81 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, result);
       }
 
+      // ================= DOCKER IMAGE ENDPOINTS =================
+      // GET /api/images
+      if (pathname === '/api/images' && method === 'GET') {
+        const result = await containerManager.listImages();
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/images/pull
+      if (pathname === '/api/images/pull' && method === 'POST') {
+        const body = await getRequestBody(req);
+        const result = await containerManager.pullImage(body.image || body.name);
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/images/prune
+      if (pathname === '/api/images/prune' && method === 'POST') {
+        const all = parsedUrl.query.all === 'true';
+        const result = await containerManager.pruneImages(all);
+        return sendJson(res, 200, result);
+      }
+
+      // GET /api/images/:id
+      const matchImageGet = pathname.match(/^\/api\/images\/([^/]+)$/);
+      if (matchImageGet && method === 'GET') {
+        const id = decodeURIComponent(matchImageGet[1]);
+        const result = await containerManager.inspectImage(id);
+        return sendJson(res, 200, result);
+      }
+
+      // DELETE /api/images/:id
+      const matchImageDel = pathname.match(/^\/api\/images\/([^/]+)$/);
+      if (matchImageDel && method === 'DELETE') {
+        const id = decodeURIComponent(matchImageDel[1]);
+        const force = parsedUrl.query.force === 'true';
+        const result = await containerManager.removeImage(id, force);
+        return sendJson(res, 200, result);
+      }
+
+      // ================= DOCKER VOLUME ENDPOINTS =================
+      // GET /api/volumes
+      if (pathname === '/api/volumes' && method === 'GET') {
+        const result = await containerManager.listVolumes();
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/volumes
+      if (pathname === '/api/volumes' && method === 'POST') {
+        const body = await getRequestBody(req);
+        const result = await containerManager.createVolume(body.name, body.driver, body.labels || {});
+        return sendJson(res, 200, result);
+      }
+
+      // POST /api/volumes/prune
+      if (pathname === '/api/volumes/prune' && method === 'POST') {
+        const result = await containerManager.pruneVolumes();
+        return sendJson(res, 200, result);
+      }
+
+      // GET /api/volumes/:name
+      const matchVolumeGet = pathname.match(/^\/api\/volumes\/([^/]+)$/);
+      if (matchVolumeGet && method === 'GET') {
+        const name = decodeURIComponent(matchVolumeGet[1]);
+        const result = await containerManager.inspectVolume(name);
+        return sendJson(res, 200, result);
+      }
+
+      // DELETE /api/volumes/:name
+      const matchVolumeDel = pathname.match(/^\/api\/volumes\/([^/]+)$/);
+      if (matchVolumeDel && method === 'DELETE') {
+        const name = decodeURIComponent(matchVolumeDel[1]);
+        const force = parsedUrl.query.force === 'true';
+        const result = await containerManager.removeVolume(name, force);
+        return sendJson(res, 200, result);
+      }
+
       return sendJson(res, 404, { success: false, error: 'Endpoint not found' });
     } catch (err) {
       console.error('[API Error]:', err);

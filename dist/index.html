@@ -866,7 +866,7 @@
                   }`}
                 >
                   <span className="text-base flex-shrink-0">🐳</span>
-                  {!sidebarCollapsed && <span className="font-bold text-sky-300">Quản Lý Containers</span>}
+                  {!sidebarCollapsed && <span className="font-bold text-sky-300">Quản Lý Docker</span>}
                 </button>
               </div>
 
@@ -5960,8 +5960,290 @@
       );
     }
 
+    // ================= PULL IMAGE MODAL =================
+    function PullImageModal({ isOpen, onClose, onPullSuccess }) {
+      const [imageName, setImageName] = React.useState('');
+      const [loading, setLoading] = React.useState(false);
+      const [statusMsg, setStatusMsg] = React.useState('');
+      const [errorMsg, setErrorMsg] = React.useState('');
+
+      if (!isOpen) return null;
+
+      const handlePull = async (e) => {
+        e?.preventDefault();
+        if (!imageName.trim()) return;
+        setLoading(true);
+        setStatusMsg(`Đang kéo image "${imageName.trim()}" từ Registry... (có thể mất 1-2 phút)`);
+        setErrorMsg('');
+
+        try {
+          const res = await fetch('/api/images/pull', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageName.trim() })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setStatusMsg('✅ Kéo image thành công!');
+            setTimeout(() => {
+              if (onPullSuccess) onPullSuccess();
+              onClose();
+            }, 1200);
+          } else {
+            setErrorMsg(data.error || 'Lỗi kéo image');
+            setStatusMsg('');
+          }
+        } catch (err) {
+          setErrorMsg(err.message);
+          setStatusMsg('');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-[#0b101e] border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-[#080d18]">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-xl">📥</span>
+                <h3 className="text-sm font-bold text-white">Pull Docker Image Mới</h3>
+              </div>
+              <button
+                disabled={loading}
+                onClick={onClose}
+                className="text-slate-400 hover:text-white text-lg disabled:opacity-50"
+              >✕</button>
+            </div>
+
+            <form onSubmit={handlePull} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Tên Image & Tag (ví dụ: <code className="text-sky-300">redis:alpine</code>, <code className="text-sky-300">mongo:latest</code>, <code className="text-sky-300">postgres:16</code>)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={imageName}
+                  onChange={(e) => setImageName(e.target.value)}
+                  placeholder="e.g. redis:7-alpine"
+                  disabled={loading}
+                  className="w-full bg-[#060912] border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-sky-500 disabled:opacity-60"
+                  autoFocus
+                />
+              </div>
+
+              {statusMsg && (
+                <div className="p-3 bg-sky-950/40 border border-sky-600/40 rounded-xl text-xs text-sky-300 flex items-center space-x-2">
+                  {loading && <div className="w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>}
+                  <span>{statusMsg}</span>
+                </div>
+              )}
+
+              {errorMsg && (
+                <div className="p-3 bg-rose-950/40 border border-rose-600/40 rounded-xl text-xs text-rose-300 break-words">
+                  ⚠️ {errorMsg}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end space-x-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={onClose}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || !imageName.trim()}
+                  className="px-4 py-2 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Đang kéo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>📥</span>
+                      <span>Bắt đầu Pull</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // ================= CREATE VOLUME MODAL =================
+    function CreateVolumeModal({ isOpen, onClose, onCreateSuccess }) {
+      const [volumeName, setVolumeName] = React.useState('');
+      const [driver, setDriver] = React.useState('local');
+      const [loading, setLoading] = React.useState(false);
+      const [errorMsg, setErrorMsg] = React.useState('');
+
+      if (!isOpen) return null;
+
+      const handleCreate = async (e) => {
+        e?.preventDefault();
+        if (!volumeName.trim()) return;
+        setLoading(true);
+        setErrorMsg('');
+
+        try {
+          const res = await fetch('/api/volumes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: volumeName.trim(), driver })
+          });
+          const data = await res.json();
+          if (data.success) {
+            if (onCreateSuccess) onCreateSuccess();
+            onClose();
+          } else {
+            setErrorMsg(data.error || 'Lỗi tạo volume');
+          }
+        } catch (err) {
+          setErrorMsg(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-[#0b101e] border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-[#080d18]">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-xl">💾</span>
+                <h3 className="text-sm font-bold text-white">Tạo Docker Volume Mới</h3>
+              </div>
+              <button disabled={loading} onClick={onClose} className="text-slate-400 hover:text-white text-lg">✕</button>
+            </div>
+
+            <form onSubmit={handleCreate} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Tên Volume (ví dụ: <code className="text-emerald-300">mongodb_data</code>, <code className="text-emerald-300">redis_cache</code>)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={volumeName}
+                  onChange={(e) => setVolumeName(e.target.value)}
+                  placeholder="e.g. app_storage_volume"
+                  disabled={loading}
+                  className="w-full bg-[#060912] border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Driver
+                </label>
+                <select
+                  value={driver}
+                  onChange={(e) => setDriver(e.target.value)}
+                  disabled={loading}
+                  className="w-full bg-[#060912] border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="local">local (Mặc định máy chủ)</option>
+                </select>
+              </div>
+
+              {errorMsg && (
+                <div className="p-3 bg-rose-950/40 border border-rose-600/40 rounded-xl text-xs text-rose-300 break-words">
+                  ⚠️ {errorMsg}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end space-x-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={onClose}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || !volumeName.trim()}
+                  className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Đang tạo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>➕</span>
+                      <span>Tạo Volume</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // ================= GENERIC DOCKER INSPECT MODAL =================
+    function DockerInspectModal({ data, onClose }) {
+      const [copied, setCopied] = React.useState(false);
+
+      if (!data) return null;
+
+      const handleCopy = () => {
+        try {
+          navigator.clipboard.writeText(JSON.stringify(data.json, null, 2));
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch (e) {}
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-[#0b101e] border border-slate-700/80 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-[#080d18] flex-shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-xl">{data.type === 'image' ? '🖼️' : '💾'}</span>
+                <div>
+                  <h3 className="text-sm font-bold text-white tracking-wide">{data.title || 'Inspect Chi Tiết'}</h3>
+                  <span className="text-[11px] font-mono text-slate-400">{data.subtitle || ''}</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleCopy}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-mono transition-colors flex items-center space-x-1"
+                >
+                  <span>{copied ? '✔ Đã chép' : '📋 Copy JSON'}</span>
+                </button>
+                <button onClick={onClose} className="text-slate-400 hover:text-white text-lg p-1">✕</button>
+              </div>
+            </div>
+
+            <div className="flex-1 p-4 overflow-y-auto bg-[#050811] text-xs font-mono">
+              <pre className="text-slate-300 whitespace-pre-wrap break-all select-all">
+                {JSON.stringify(data.json, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ================= MAIN CONTAINER MANAGER PAGE =================
     function ContainerManagerPage() {
+      const [dockerTab, setDockerTab] = React.useState('containers'); // 'containers' | 'images' | 'volumes'
       const [containers, setContainers] = React.useState([]);
       const [dockerVersion, setDockerVersion] = React.useState('');
       const [isAvailable, setIsAvailable] = React.useState(true);
@@ -5973,10 +6255,27 @@
       const [projectFilter, setProjectFilter] = React.useState('all');
       const [layoutMode, setLayoutMode] = React.useState('list'); // 'list' (dọc) | 'grid' (lưới)
 
+      // Images State
+      const [images, setImages] = React.useState([]);
+      const [imagesLoading, setImagesLoading] = React.useState(false);
+      const [imageStats, setImageStats] = React.useState({ total: 0, inUse: 0, unused: 0, totalSize: '0 B' });
+      const [imageSearchTerm, setImageSearchTerm] = React.useState('');
+      const [imageFilter, setImageFilter] = React.useState('all'); // 'all' | 'in-use' | 'unused'
+
+      // Volumes State
+      const [volumes, setVolumes] = React.useState([]);
+      const [volumesLoading, setVolumesLoading] = React.useState(false);
+      const [volumeStats, setVolumeStats] = React.useState({ total: 0, inUse: 0, unused: 0 });
+      const [volumeSearchTerm, setVolumeSearchTerm] = React.useState('');
+      const [volumeFilter, setVolumeFilter] = React.useState('all'); // 'all' | 'in-use' | 'unused'
+
       // Modals State
       const [logsContainer, setLogsContainer] = React.useState(null);
       const [execContainer, setExecContainer] = React.useState(null);
       const [inspectContainer, setInspectContainer] = React.useState(null);
+      const [showPullModal, setShowPullModal] = React.useState(false);
+      const [showCreateVolumeModal, setShowCreateVolumeModal] = React.useState(false);
+      const [inspectModalData, setInspectModalData] = React.useState(null);
 
       const fetchContainers = React.useCallback(async (showSpinner = true) => {
         if (showSpinner) setLoading(true);
@@ -6000,12 +6299,71 @@
         }
       }, []);
 
+      const fetchImages = React.useCallback(async (showSpinner = true) => {
+        if (showSpinner) setImagesLoading(true);
+        try {
+          const res = await fetch('/api/images');
+          const data = await res.json();
+          if (data.success) {
+            const list = data.images || [];
+            setImages(list);
+            const inUse = list.filter(i => i.inUse).length;
+            const unused = list.length - inUse;
+            const stats = data.stats || {};
+            setImageStats({
+              total: stats.total || stats.totalCount || list.length,
+              inUse: stats.inUse !== undefined ? stats.inUse : inUse,
+              unused: stats.unused !== undefined ? stats.unused : unused,
+              totalSize: stats.totalSize || '0 B'
+            });
+          }
+        } catch (e) {
+          console.error('Lỗi fetch images:', e);
+        } finally {
+          if (showSpinner) setImagesLoading(false);
+        }
+      }, []);
+
+      const fetchVolumes = React.useCallback(async (showSpinner = true) => {
+        if (showSpinner) setVolumesLoading(true);
+        try {
+          const res = await fetch('/api/volumes');
+          const data = await res.json();
+          if (data.success) {
+            const list = data.volumes || [];
+            setVolumes(list);
+            const inUse = list.filter(v => v.inUse).length;
+            const unused = list.length - inUse;
+            const stats = data.stats || {};
+            setVolumeStats({
+              total: stats.total || stats.totalCount || list.length,
+              inUse: stats.inUse !== undefined ? stats.inUse : inUse,
+              unused: stats.unused !== undefined ? stats.unused : unused
+            });
+          }
+        } catch (e) {
+          console.error('Lỗi fetch volumes:', e);
+        } finally {
+          if (showSpinner) setVolumesLoading(false);
+        }
+      }, []);
+
       React.useEffect(() => {
         fetchContainers(true);
         // Polling background metrics every 6s
-        const interval = setInterval(() => fetchContainers(false), 6000);
+        const interval = setInterval(() => {
+          fetchContainers(false);
+        }, 6000);
         return () => clearInterval(interval);
       }, [fetchContainers]);
+
+      React.useEffect(() => {
+        if (dockerTab === 'images') {
+          fetchImages(images.length === 0);
+        } else if (dockerTab === 'volumes') {
+          fetchVolumes(volumes.length === 0);
+        }
+      }, [dockerTab, fetchImages, fetchVolumes, images.length, volumes.length]);
 
       const handleContainerAction = async (id, action) => {
         setActionLoading(prev => ({ ...prev, [id]: action }));
@@ -6051,6 +6409,132 @@
         }
       };
 
+      // Images Handlers
+      const handlePullImage = async (imageName) => {
+        const res = await fetch('/api/images/pull', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageName })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Lỗi kéo image từ registry');
+        }
+        await fetchImages(false);
+        return data;
+      };
+
+      const handleRemoveImage = async (id, repoTag) => {
+        if (!confirm(`Bạn có chắc chắn muốn xóa image "${repoTag || id}" không?`)) return;
+        try {
+          const res = await fetch(`/api/images/${encodeURIComponent(id)}?force=true`, { method: 'DELETE' });
+          const data = await res.json();
+          if (data.success) {
+            await fetchImages(false);
+          } else {
+            alert(`Lỗi xóa image: ${data.error}`);
+          }
+        } catch (e) {
+          alert(`Lỗi xóa image: ${e.message}`);
+        }
+      };
+
+      const handlePruneImages = async () => {
+        if (!confirm('Bạn có chắc muốn dọn dẹp các dangling images (images chưa gắn tag và không dùng)?')) return;
+        try {
+          const res = await fetch('/api/images/prune', { method: 'POST' });
+          const data = await res.json();
+          if (data.success) {
+            await fetchImages(false);
+            alert(`Đã dọn dẹp xong!\n${data.output || 'Hoàn tất'}`);
+          } else {
+            alert(`Lỗi prune images: ${data.error}`);
+          }
+        } catch (e) {
+          alert(`Lỗi prune images: ${e.message}`);
+        }
+      };
+
+      const handleInspectImage = async (id, repoTag) => {
+        try {
+          const res = await fetch(`/api/images/${encodeURIComponent(id)}`);
+          const data = await res.json();
+          if (data.success && data.image) {
+            setInspectModalData({
+              title: `Inspect Image: ${repoTag || id}`,
+              json: data.image
+            });
+          } else {
+            alert(`Không tìm thấy thông tin inspect: ${data.error || ''}`);
+          }
+        } catch (e) {
+          alert(`Lỗi inspect: ${e.message}`);
+        }
+      };
+
+      // Volumes Handlers
+      const handleCreateVolume = async (volumeData) => {
+        const res = await fetch('/api/volumes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(volumeData)
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Lỗi tạo volume');
+        }
+        await fetchVolumes(false);
+        return data;
+      };
+
+      const handleRemoveVolume = async (name) => {
+        if (!confirm(`Bạn có chắc chắn muốn xóa volume "${name}" không?\nCảnh báo: Dữ liệu bên trong volume sẽ bị xóa vĩnh viễn!`)) return;
+        try {
+          const res = await fetch(`/api/volumes/${encodeURIComponent(name)}?force=true`, { method: 'DELETE' });
+          const data = await res.json();
+          if (data.success) {
+            await fetchVolumes(false);
+          } else {
+            alert(`Lỗi xóa volume: ${data.error}`);
+          }
+        } catch (e) {
+          alert(`Lỗi xóa volume: ${e.message}`);
+        }
+      };
+
+      const handlePruneVolumes = async () => {
+        if (!confirm('Bạn có chắc muốn dọn dẹp tất cả volumes không được sử dụng bởi bất kỳ container nào?')) return;
+        try {
+          const res = await fetch('/api/volumes/prune', { method: 'POST' });
+          const data = await res.json();
+          if (data.success) {
+            await fetchVolumes(false);
+            alert(`Đã dọn dẹp volumes xong!\n${data.output || 'Hoàn tất'}`);
+          } else {
+            alert(`Lỗi prune volumes: ${data.error}`);
+          }
+        } catch (e) {
+          alert(`Lỗi prune volumes: ${e.message}`);
+        }
+      };
+
+      const handleInspectVolume = async (name) => {
+        try {
+          const res = await fetch(`/api/volumes/${encodeURIComponent(name)}`);
+          const data = await res.json();
+          if (data.success && data.volume) {
+            setInspectModalData({
+              title: `Inspect Volume: ${name}`,
+              json: data.volume
+            });
+          } else {
+            alert(`Không tìm thấy thông tin inspect volume: ${data.error || ''}`);
+          }
+        } catch (e) {
+          alert(`Lỗi inspect: ${e.message}`);
+        }
+      };
+
       // Statistics calculations
       const totalCount = containers.length;
       const runningCount = containers.filter(c => c.isRunning).length;
@@ -6079,6 +6563,37 @@
         return matchesSearch && matchesStatus && matchesProject;
       });
 
+      // Filter images
+      const filteredImages = images.filter(img => {
+        const term = imageSearchTerm.toLowerCase();
+        const matchesSearch = imageSearchTerm === '' ||
+          (img.repository && img.repository.toLowerCase().includes(term)) ||
+          (img.tag && img.tag.toLowerCase().includes(term)) ||
+          (img.id && img.id.toLowerCase().includes(term)) ||
+          (img.repoTag && img.repoTag.toLowerCase().includes(term));
+
+        const matchesFilter = imageFilter === 'all' ||
+          (imageFilter === 'in-use' && img.inUse) ||
+          (imageFilter === 'unused' && !img.inUse);
+
+        return matchesSearch && matchesFilter;
+      });
+
+      // Filter volumes
+      const filteredVolumes = volumes.filter(v => {
+        const term = volumeSearchTerm.toLowerCase();
+        const matchesSearch = volumeSearchTerm === '' ||
+          (v.name && v.name.toLowerCase().includes(term)) ||
+          (v.driver && v.driver.toLowerCase().includes(term)) ||
+          (v.mountpoint && v.mountpoint.toLowerCase().includes(term));
+
+        const matchesFilter = volumeFilter === 'all' ||
+          (volumeFilter === 'in-use' && v.inUse) ||
+          (volumeFilter === 'unused' && !v.inUse);
+
+        return matchesSearch && matchesFilter;
+      });
+
       return (
         <div className="space-y-6 pb-12 animate-in fade-in duration-200">
           {/* Top Banner & Header */}
@@ -6093,7 +6608,7 @@
                 <div>
                   <div className="flex items-center space-x-3">
                     <h1 className="text-xl font-extrabold text-white tracking-wide">
-                      Quản Lý Containers (Docker)
+                      Quản Lý Docker
                     </h1>
                     {dockerVersion && (
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-sky-950/80 text-sky-300 border border-sky-700/50">
@@ -6102,622 +6617,1084 @@
                     )}
                   </div>
                   <p className="text-xs text-slate-400 mt-1 max-w-xl">
-                    Giám sát trạng thái live, xem logs thời gian thực và mở Terminal PTY trực tiếp bên trong containers trên máy.
+                    Hệ sinh thái Docker tập trung: Giám sát Containers, quản lý Images và lưu trữ Volumes thời gian thực.
                   </p>
                 </div>
               </div>
 
-              {/* Global Controls */}
+              {/* Action Controls by Tab */}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => handleGlobalAction('start-all')}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-xs font-semibold transition-all shadow-sm"
-                  title="Khởi động tất cả containers đã dừng"
-                >
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                  <span>Start All</span>
-                </button>
+                {dockerTab === 'containers' && (
+                  <>
+                    <button
+                      onClick={() => handleGlobalAction('start-all')}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-xs font-semibold transition-all shadow-sm"
+                      title="Khởi động tất cả containers đã dừng"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      <span>Start All</span>
+                    </button>
 
-                <button
-                  onClick={() => handleGlobalAction('stop-all')}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-xl text-xs font-semibold transition-all shadow-sm"
-                  title="Dừng tất cả containers đang chạy"
-                >
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
-                  <span>Stop All</span>
-                </button>
+                    <button
+                      onClick={() => handleGlobalAction('stop-all')}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-xl text-xs font-semibold transition-all shadow-sm"
+                      title="Dừng tất cả containers đang chạy"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+                      <span>Stop All</span>
+                    </button>
 
-                <button
-                  onClick={() => handleGlobalAction('restart-all')}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-xl text-xs font-semibold transition-all"
-                  title="Khởi động lại toàn bộ containers"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                  <span>Restart All</span>
-                </button>
+                    <button
+                      onClick={() => handleGlobalAction('restart-all')}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-xl text-xs font-semibold transition-all"
+                      title="Khởi động lại toàn bộ containers"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                      <span>Restart All</span>
+                    </button>
 
-                <button
-                  onClick={() => handleGlobalAction('prune')}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-amber-950/60 text-slate-400 hover:text-amber-300 border border-slate-700 hover:border-amber-700/50 rounded-xl text-xs font-semibold transition-all"
-                  title="Dọn dẹp các container đã thoát (Exited)"
-                >
-                  <span>🧹 Prune</span>
-                </button>
+                    <button
+                      onClick={() => handleGlobalAction('prune')}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-amber-950/60 text-slate-400 hover:text-amber-300 border border-slate-700 hover:border-amber-700/50 rounded-xl text-xs font-semibold transition-all"
+                      title="Dọn dẹp các container đã thoát (Exited)"
+                    >
+                      <span>🧹 Prune</span>
+                    </button>
 
-                <button
-                  onClick={() => fetchContainers(true)}
-                  className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition-colors"
-                  title="Làm mới trạng thái"
-                >
-                  <svg className={`w-4 h-4 ${loading ? 'animate-spin text-sky-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                </button>
+                    <button
+                      onClick={() => fetchContainers(true)}
+                      className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition-colors"
+                      title="Làm mới trạng thái"
+                    >
+                      <svg className={`w-4 h-4 ${loading ? 'animate-spin text-sky-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                  </>
+                )}
+
+                {dockerTab === 'images' && (
+                  <>
+                    <button
+                      onClick={() => setShowPullModal(true)}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/30"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                      <span>+ Kéo Image (Pull)</span>
+                    </button>
+
+                    <button
+                      onClick={handlePruneImages}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-amber-950/60 text-slate-300 hover:text-amber-300 border border-slate-700 hover:border-amber-700/50 rounded-xl text-xs font-semibold transition-all"
+                      title="Dọn dẹp các dangling images"
+                    >
+                      <span>🧹 Prune Dangling</span>
+                    </button>
+
+                    <button
+                      onClick={() => fetchImages(true)}
+                      className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition-colors"
+                      title="Làm mới danh sách images"
+                    >
+                      <svg className={`w-4 h-4 ${imagesLoading ? 'animate-spin text-indigo-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                  </>
+                )}
+
+                {dockerTab === 'volumes' && (
+                  <>
+                    <button
+                      onClick={() => setShowCreateVolumeModal(true)}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-600/30"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
+                      <span>+ Tạo Volume Mới</span>
+                    </button>
+
+                    <button
+                      onClick={handlePruneVolumes}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-amber-950/60 text-slate-300 hover:text-amber-300 border border-slate-700 hover:border-amber-700/50 rounded-xl text-xs font-semibold transition-all"
+                      title="Dọn dẹp các volume không dùng"
+                    >
+                      <span>🧹 Prune Unused</span>
+                    </button>
+
+                    <button
+                      onClick={() => fetchVolumes(true)}
+                      className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition-colors"
+                      title="Làm mới danh sách volumes"
+                    >
+                      <svg className={`w-4 h-4 ${volumesLoading ? 'animate-spin text-purple-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                  </>
+                )}
               </div>
+            </div>
+
+            {/* Docker Main Tabs Switcher */}
+            <div className="flex items-center space-x-2 mt-5 pt-4 border-t border-slate-800/80">
+              <button
+                onClick={() => setDockerTab('containers')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  dockerTab === 'containers'
+                    ? 'bg-sky-600 text-white shadow-lg shadow-sky-600/30 ring-1 ring-sky-400/50'
+                    : 'bg-[#070b15]/90 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+                }`}
+              >
+                <span>📦 Containers</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/40 font-mono">
+                  {containers.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setDockerTab('images')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  dockerTab === 'images'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-1 ring-indigo-400/50'
+                    : 'bg-[#070b15]/90 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+                }`}
+              >
+                <span>🖼️ Images</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/40 font-mono">
+                  {imageStats.total || images.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setDockerTab('volumes')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  dockerTab === 'volumes'
+                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 ring-1 ring-purple-400/50'
+                    : 'bg-[#070b15]/90 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+                }`}
+              >
+                <span>💾 Volumes</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/40 font-mono">
+                  {volumeStats.total || volumes.length}
+                </span>
+              </button>
             </div>
 
             {/* Metrics Quick Strip */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-800/80">
-              <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
-                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Tổng Containers</span>
-                <span className="text-xl font-extrabold text-white mt-1 block font-mono">
-                  {loading && containers.length === 0 ? (
-                    <span className="inline-block w-4 h-4 border-2 border-slate-600 border-t-transparent rounded-full animate-spin align-middle"></span>
-                  ) : totalCount}
-                </span>
-              </div>
-              <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
-                <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block">Đang Chạy</span>
-                <div className="flex items-center space-x-2 mt-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span className="text-xl font-extrabold text-emerald-400 font-mono">
+            {dockerTab === 'containers' && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-800/80">
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Tổng Containers</span>
+                  <span className="text-xl font-extrabold text-white mt-1 block font-mono">
                     {loading && containers.length === 0 ? (
-                      <span className="inline-block w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin align-middle"></span>
-                    ) : runningCount}
+                      <span className="inline-block w-4 h-4 border-2 border-slate-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                    ) : totalCount}
+                  </span>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block">Đang Chạy</span>
+                  <div className="flex items-center space-x-2 mt-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="text-xl font-extrabold text-emerald-400 font-mono">
+                      {loading && containers.length === 0 ? (
+                        <span className="inline-block w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                      ) : runningCount}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Đã Dừng</span>
+                  <span className="text-xl font-extrabold text-slate-400 mt-1 block font-mono">
+                    {loading && containers.length === 0 ? (
+                      <span className="inline-block w-4 h-4 border-2 border-slate-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                    ) : stoppedCount}
+                  </span>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider block">Compose Projects</span>
+                  <span className="text-xl font-extrabold text-cyan-400 mt-1 block font-mono">
+                    {loading && containers.length === 0 ? (
+                      <span className="inline-block w-4 h-4 border-2 border-cyan-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                    ) : distinctProjects.length}
                   </span>
                 </div>
               </div>
-              <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
-                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Đã Dừng</span>
-                <span className="text-xl font-extrabold text-slate-400 mt-1 block font-mono">
-                  {loading && containers.length === 0 ? (
-                    <span className="inline-block w-4 h-4 border-2 border-slate-600 border-t-transparent rounded-full animate-spin align-middle"></span>
-                  ) : stoppedCount}
-                </span>
-              </div>
-              <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
-                <span className="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider block">Compose Projects</span>
-                <span className="text-xl font-extrabold text-cyan-400 mt-1 block font-mono">
-                  {loading && containers.length === 0 ? (
-                    <span className="inline-block w-4 h-4 border-2 border-cyan-600 border-t-transparent rounded-full animate-spin align-middle"></span>
-                  ) : distinctProjects.length}
-                </span>
-              </div>
-            </div>
-          </div>
+            )}
 
-          {/* Filters and Search Bar */}
-          <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-[#0b101e]/90 border border-slate-800 p-3 rounded-2xl shadow-sm">
-            {/* Search */}
-            <div className="relative w-full md:w-80">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Tìm tên, image, port, project..."
-                className="w-full bg-[#060912] border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"
-              />
-              <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            </div>
-
-            {/* Filter Tabs */}
-            <div className="flex items-center space-x-1.5 self-start md:self-auto overflow-x-auto w-full md:w-auto">
-              <button
-                onClick={() => setStatusFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  statusFilter === 'all' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                Tất cả ({loading && containers.length === 0 ? '...' : totalCount})
-              </button>
-              <button
-                onClick={() => setStatusFilter('running')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  statusFilter === 'running' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                Đang chạy ({loading && containers.length === 0 ? '...' : runningCount})
-              </button>
-              <button
-                onClick={() => setStatusFilter('stopped')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  statusFilter === 'stopped' ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                Đã dừng ({loading && containers.length === 0 ? '...' : stoppedCount})
-              </button>
-
-              {/* Compose Project Dropdown */}
-              {distinctProjects.length > 0 && (
-                <select
-                  value={projectFilter}
-                  onChange={(e) => setProjectFilter(e.target.value)}
-                  className="bg-[#060912] text-xs text-slate-300 border border-slate-700 rounded-lg px-2.5 py-1.5 ml-2 font-mono focus:outline-none focus:border-sky-500"
-                >
-                  <option value="all">Mọi Dự Án</option>
-                  {distinctProjects.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                  <option value="standalone">Standalone (Không compose)</option>
-                </select>
-              )}
-
-              {/* View Layout Switch */}
-              <div className="flex items-center bg-[#060912] p-0.5 rounded-lg border border-slate-700/80 ml-auto md:ml-2">
-                <button
-                  type="button"
-                  onClick={() => setLayoutMode('list')}
-                  className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center space-x-1.5 transition-all ${
-                    layoutMode === 'list'
-                      ? 'bg-sky-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                  title="Hiển thị dạng danh sách dọc"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-                  <span>Dọc</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLayoutMode('grid')}
-                  className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center space-x-1.5 transition-all ${
-                    layoutMode === 'grid'
-                      ? 'bg-sky-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                  title="Hiển thị dạng lưới"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-                  <span>Lưới</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Containers View */}
-          {loading && containers.length === 0 ? (
-            <div className="bg-[#0b101e] border border-slate-800 rounded-2xl p-16 text-center flex flex-col items-center justify-center space-y-4 shadow-xl">
-              <div className="relative">
-                <div className="w-12 h-12 border-3 border-sky-500/20 border-t-sky-400 rounded-full animate-spin"></div>
-                <div className="absolute inset-0 flex items-center justify-center text-lg">
-                  🐳
+            {dockerTab === 'images' && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-800/80">
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Tổng Images</span>
+                  <span className="text-xl font-extrabold text-white mt-1 block font-mono">
+                    {imagesLoading && images.length === 0 ? (
+                      <span className="inline-block w-4 h-4 border-2 border-slate-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                    ) : imageStats.total}
+                  </span>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block">Đang Sử Dụng</span>
+                  <div className="flex items-center space-x-2 mt-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="text-xl font-extrabold text-emerald-400 font-mono">
+                      {imagesLoading && images.length === 0 ? (
+                        <span className="inline-block w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                      ) : imageStats.inUse}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider block">Chưa Gắn Container</span>
+                  <span className="text-xl font-extrabold text-amber-400 mt-1 block font-mono">
+                    {imagesLoading && images.length === 0 ? (
+                      <span className="inline-block w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                    ) : imageStats.unused}
+                  </span>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider block">Tổng Dung Lượng</span>
+                  <span className="text-xl font-extrabold text-cyan-400 mt-1 block font-mono">
+                    {imagesLoading && images.length === 0 ? (
+                      <span className="inline-block w-4 h-4 border-2 border-cyan-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                    ) : (imageStats.totalSize || '0 B')}
+                  </span>
                 </div>
               </div>
-              <div className="space-y-1">
-                <h3 className="text-base font-bold text-white tracking-wide">Đang tải danh sách containers...</h3>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  Đang kết nối tới Docker daemon và truy vấn trạng thái live, vui lòng chờ trong giây lát.
-                </p>
-              </div>
-            </div>
-          ) : !isAvailable ? (
-            <div className="bg-[#0b101e] border border-rose-900/40 rounded-2xl p-12 text-center flex flex-col items-center justify-center space-y-3 shadow-xl">
-              <span className="text-4xl">⚠️</span>
-              <h3 className="text-base font-bold text-rose-300">Docker Daemon chưa sẵn sàng</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                {dockerError || 'Không thể kết nối đến Docker daemon. Vui lòng đảm bảo Docker Desktop hoặc Docker service đang chạy.'}
-              </p>
-              <button
-                onClick={() => fetchContainers(true)}
-                className="mt-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-xl shadow transition-colors flex items-center space-x-2"
-              >
-                <span>🔄 Thử lại</span>
-              </button>
-            </div>
-          ) : filteredContainers.length === 0 ? (
-            <div className="bg-[#0b101e] border border-slate-800 rounded-2xl p-12 text-center shadow-md">
-              <span className="text-4xl block mb-3">📦</span>
-              <h3 className="text-base font-bold text-white mb-1">Không tìm thấy containers nào</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                {containers.length === 0 
-                  ? 'Máy của bạn hiện chưa có container nào được tạo.'
-                  : 'Không có container nào khớp với điều kiện tìm kiếm hoặc bộ lọc hiện tại.'}
-              </p>
-            </div>
-          ) : layoutMode === 'list' ? (
-            /* VERTICAL LIST VIEW (DỌC) */
-            <div className="flex flex-col space-y-2.5">
-              {filteredContainers.map((c) => {
-                const isRunning = c.isRunning;
-                const isActionBusy = !!actionLoading[c.id];
-                const stats = c.stats;
+            )}
 
-                return (
-                  <div
-                    key={c.id}
-                    className={`p-3.5 px-4 rounded-xl border transition-all duration-150 flex flex-col xl:flex-row xl:items-center justify-between gap-3 shadow-md ${
-                      isRunning
-                        ? 'border-slate-800 hover:border-emerald-500/50 bg-[#090e1b] hover:bg-[#0c1424]'
-                        : 'border-slate-850 bg-[#070a14] opacity-80 hover:opacity-100 hover:border-slate-700'
+            {dockerTab === 'volumes' && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-800/80">
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Tổng Volumes</span>
+                  <span className="text-xl font-extrabold text-white mt-1 block font-mono">
+                    {volumesLoading && volumes.length === 0 ? (
+                      <span className="inline-block w-4 h-4 border-2 border-slate-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                    ) : volumeStats.total}
+                  </span>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block">Đang Gắn Container</span>
+                  <div className="flex items-center space-x-2 mt-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="text-xl font-extrabold text-emerald-400 font-mono">
+                      {volumesLoading && volumes.length === 0 ? (
+                        <span className="inline-block w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                      ) : volumeStats.inUse}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider block">Chưa Dùng (Unused)</span>
+                  <span className="text-xl font-extrabold text-amber-400 mt-1 block font-mono">
+                    {volumesLoading && volumes.length === 0 ? (
+                      <span className="inline-block w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin align-middle"></span>
+                    ) : volumeStats.unused}
+                  </span>
+                </div>
+                <div className="bg-[#070b15]/60 border border-slate-800/60 rounded-xl p-3">
+                  <span className="text-[11px] font-semibold text-purple-400 uppercase tracking-wider block">Trình Điều Khiển</span>
+                  <span className="text-xl font-extrabold text-purple-300 mt-1 block font-mono">
+                    Local Driver
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ================= TAB 1: CONTAINERS VIEW ================= */}
+          {dockerTab === 'containers' && (
+            <>
+              {/* Filters and Search Bar */}
+              <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-[#0b101e]/90 border border-slate-800 p-3 rounded-2xl shadow-sm">
+                {/* Search */}
+                <div className="relative w-full md:w-80">
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Tìm tên, image, port, project..."
+                    className="w-full bg-[#060912] border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                  <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex items-center space-x-1.5 self-start md:self-auto overflow-x-auto w-full md:w-auto">
+                  <button
+                    onClick={() => setStatusFilter('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      statusFilter === 'all' ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
                     }`}
                   >
-                    {/* Identity: Icon + Name + Image + ID */}
-                    <div className="flex items-center space-x-3.5 min-w-[260px] xl:w-[28%]">
-                      <div className="relative flex-shrink-0">
-                        <span className="text-2xl">{getContainerIcon(c.name, c.image)}</span>
-                        <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#090e1b] ${
-                          isRunning ? 'bg-emerald-400' : 'bg-slate-500'
-                        }`} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center space-x-2">
-                          <h4
-                            onClick={() => setInspectContainer(c)}
-                            className="font-mono text-sm font-bold text-white hover:text-sky-300 cursor-pointer truncate transition-colors"
-                            title={`${c.name} - Bấm để inspect chi tiết`}
-                          >
-                            {c.name}
-                          </h4>
-                          {c.composeProject && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-950/80 text-purple-300 border border-purple-800/40 truncate flex-shrink-0" title={`Docker Compose: ${c.composeProject}`}>
-                              📁 {c.composeProject}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-1.5 text-[11px] font-mono text-slate-400 truncate mt-0.5">
-                          <span className="text-slate-500 flex-shrink-0">{c.id}</span>
-                          <span className="text-slate-600">•</span>
-                          <span className="truncate text-slate-400" title={c.image}>{c.image}</span>
-                        </div>
-                      </div>
-                    </div>
+                    Tất cả ({loading && containers.length === 0 ? '...' : totalCount})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter('running')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      statusFilter === 'running' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Đang chạy ({loading && containers.length === 0 ? '...' : runningCount})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter('stopped')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      statusFilter === 'stopped' ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Đã dừng ({loading && containers.length === 0 ? '...' : stoppedCount})
+                  </button>
 
-                    {/* Status & Ports */}
-                    <div className="flex flex-wrap items-center gap-2 xl:w-[22%]">
-                      {isRunning ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
-                          RUNNING
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700 flex-shrink-0">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
-                          EXITED
-                        </span>
-                      )}
+                  {/* Compose Project Dropdown */}
+                  {distinctProjects.length > 0 && (
+                    <select
+                      value={projectFilter}
+                      onChange={(e) => setProjectFilter(e.target.value)}
+                      className="bg-[#060912] text-xs text-slate-300 border border-slate-700 rounded-lg px-2.5 py-1.5 ml-2 font-mono focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="all">Mọi Dự Án</option>
+                      {distinctProjects.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                      <option value="standalone">Standalone (Không compose)</option>
+                    </select>
+                  )}
 
-                      {c.healthStatus && c.healthStatus !== 'none' && (
-                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded flex-shrink-0 ${
-                          c.healthStatus === 'healthy' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
-                        }`}>
-                          {c.healthStatus}
-                        </span>
-                      )}
+                  {/* View Layout Switch */}
+                  <div className="flex items-center bg-[#060912] p-0.5 rounded-lg border border-slate-700/80 ml-auto md:ml-2">
+                    <button
+                      type="button"
+                      onClick={() => setLayoutMode('list')}
+                      className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+                        layoutMode === 'list'
+                          ? 'bg-sky-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Hiển thị dạng danh sách dọc"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                      <span>Dọc</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLayoutMode('grid')}
+                      className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+                        layoutMode === 'grid'
+                          ? 'bg-sky-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Hiển thị dạng lưới"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+                      <span>Lưới</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
 
-                      {/* Ports */}
-                      {c.ports.length > 0 ? (
-                        <div className="flex flex-wrap items-center gap-1">
-                          {c.ports.map((p, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-950/70 text-cyan-300 border border-blue-800/40 font-bold"
-                              title={`Port Mapping: ${p.display}`}
-                            >
-                              :{p.hostPort || p.containerPort}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-[10px] font-mono text-slate-500 italic">no ports</span>
-                      )}
-                    </div>
-
-                    {/* Live Metrics: CPU & RAM */}
-                    <div className="flex items-center gap-4 xl:w-[24%] font-mono text-xs">
-                      {isRunning && stats ? (
-                        <>
-                          <div className="w-1/2">
-                            <div className="flex justify-between text-[11px] text-slate-400 mb-0.5">
-                              <span>CPU</span>
-                              <span className="text-cyan-300 font-bold">{stats.cpuPerc}</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
-                                style={{ width: `${Math.min(100, parseFloat(stats.cpuPerc) * 4 || 1)}%` }}
-                              />
-                            </div>
-                          </div>
-                          <div className="w-1/2">
-                            <div className="flex justify-between text-[11px] text-slate-400 mb-0.5">
-                              <span>RAM</span>
-                              <span className="text-emerald-300 font-bold truncate">{stats.memUsage.split('/')[0].trim()}</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
-                                style={{ width: `${Math.min(100, parseFloat(stats.memPerc) || 1)}%` }}
-                              />
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-slate-500 text-xs italic font-mono truncate">
-                          {isRunning ? 'Đang đọc số liệu...' : (c.status || 'Đã dừng')}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center space-x-1.5 flex-shrink-0 justify-end">
-                      {isRunning ? (
-                        <button
-                          onClick={() => handleContainerAction(c.id, 'stop')}
-                          disabled={isActionBusy}
-                          className="flex items-center space-x-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-50"
-                          title="Dừng container"
-                        >
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
-                          <span>Stop</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleContainerAction(c.id, 'start')}
-                          disabled={isActionBusy}
-                          className="flex items-center space-x-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-sm shadow-blue-900/30 disabled:opacity-50"
-                          title="Khởi động container"
-                        >
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                          <span>Start</span>
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => handleContainerAction(c.id, 'restart')}
-                        disabled={isActionBusy}
-                        className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
-                        title="Khởi động lại container"
-                      >
-                        <svg className={`w-3.5 h-3.5 ${actionLoading[c.id] === 'restart' ? 'animate-spin text-cyan-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                      </button>
-
-                      <button
-                        onClick={() => setLogsContainer(c)}
-                        className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
-                        title="Xem Logs thời gian thực"
-                      >
-                        <span className="text-xs">📺</span>
-                      </button>
-
-                      <button
-                        onClick={() => setExecContainer(c)}
-                        disabled={!isRunning}
-                        className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
-                        title={isRunning ? "Mở Interactive Shell Terminal" : "Chỉ mở được shell khi container đang chạy"}
-                      >
-                        <span className="text-xs">💻</span>
-                      </button>
-
-                      <button
-                        onClick={() => setInspectContainer(c)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-300 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
-                        title="Inspect chi tiết (ENV, IP, Mounts)"
-                      >
-                        <span className="text-xs">ℹ️</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleDeleteContainer(c.id, c.name)}
-                        disabled={isActionBusy}
-                        className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700 disabled:opacity-30"
-                        title="Xóa container"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                      </button>
+              {/* Containers Content */}
+              {loading && containers.length === 0 ? (
+                <div className="bg-[#0b101e] border border-slate-800 rounded-2xl p-16 text-center flex flex-col items-center justify-center space-y-4 shadow-xl">
+                  <div className="relative">
+                    <div className="w-12 h-12 border-3 border-sky-500/20 border-t-sky-400 rounded-full animate-spin"></div>
+                    <div className="absolute inset-0 flex items-center justify-center text-lg">
+                      🐳
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            /* GRID VIEW (LƯỚI) */
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredContainers.map((c) => {
-                const isRunning = c.isRunning;
-                const isActionBusy = !!actionLoading[c.id];
-                const stats = c.stats;
-
-                return (
-                  <div
-                    key={c.id}
-                    className={`relative flex flex-col rounded-2xl border transition-all duration-200 overflow-hidden shadow-lg ${
-                      isRunning
-                        ? 'border-emerald-500/40 bg-gradient-to-b from-[#0b1424] to-[#080d18] shadow-emerald-950/20'
-                        : 'border-slate-800 hover:border-slate-700 bg-[#090e1a]'
-                    }`}
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-slate-200">Đang kiểm tra và kết nối Docker Daemon...</h3>
+                    <p className="text-xs text-slate-500">Đang quét các container đang chạy và đã dừng trên máy.</p>
+                  </div>
+                </div>
+              ) : !isAvailable ? (
+                <div className="bg-[#140b12] border border-rose-900/50 rounded-2xl p-8 text-center space-y-3">
+                  <div className="text-3xl">⚠️</div>
+                  <h3 className="text-base font-bold text-rose-300">Docker Daemon không khả dụng</h3>
+                  <p className="text-xs text-slate-400 max-w-lg mx-auto">
+                    {dockerError || 'Không thể kết nối tới Docker Socket hoặc WSL/Docker Desktop chưa được bật trên máy tính này.'}
+                  </p>
+                  <button
+                    onClick={() => fetchContainers(true)}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold"
                   >
-                    {/* Top Header Card */}
-                    <div className="p-4 pb-3 border-b border-slate-800/80 bg-[#070b14]/90 flex flex-col space-y-2.5">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-3">
-                          <span className="text-2xl">{getContainerIcon(c.name, c.image)}</span>
-                          <div>
+                    Thử Kết Nối Lại
+                  </button>
+                </div>
+              ) : filteredContainers.length === 0 ? (
+                <div className="bg-[#0b101e] border border-slate-800 rounded-2xl p-12 text-center space-y-2">
+                  <span className="text-3xl">📦</span>
+                  <h3 className="text-base font-bold text-slate-300">Không tìm thấy containers nào</h3>
+                  <p className="text-xs text-slate-500">
+                    {searchTerm ? 'Không có container nào khớp với từ khóa tìm kiếm.' : 'Chưa có container nào được tạo trên hệ thống.'}
+                  </p>
+                </div>
+              ) : layoutMode === 'list' ? (
+                /* LIST VIEW (DỌC) */
+                <div className="flex flex-col space-y-2.5">
+                  {filteredContainers.map((c) => {
+                    const isRunning = c.isRunning;
+                    const isActionBusy = !!actionLoading[c.id];
+                    const stats = c.stats;
+
+                    return (
+                      <div
+                        key={c.id}
+                        className={`flex flex-col xl:flex-row xl:items-center justify-between p-3.5 rounded-xl border transition-all duration-150 gap-3 shadow-md ${
+                          isRunning
+                            ? 'bg-[#091122]/90 border-emerald-500/30 hover:border-emerald-500/60 shadow-emerald-950/10'
+                            : 'bg-[#0a0e1a]/80 border-slate-800/90 hover:border-slate-700'
+                        }`}
+                      >
+                        {/* Left: Info */}
+                        <div className="flex items-center space-x-3.5 min-w-0 xl:w-[32%]">
+                          <span className="text-2xl flex-shrink-0">{getContainerIcon(c.name, c.image)}</span>
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center space-x-2">
-                              <h3 className="font-mono text-sm font-bold text-white tracking-wide truncate max-w-[180px]" title={c.name}>
+                              <h3 className="font-mono text-sm font-bold text-white tracking-wide truncate" title={c.name}>
                                 {c.name}
                               </h3>
+                              {c.composeProject && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-cyan-950/80 text-cyan-400 border border-cyan-800/40 flex-shrink-0">
+                                  {c.composeProject}
+                                </span>
+                              )}
                             </div>
-                            <p className="font-mono text-[11px] text-slate-400 truncate max-w-[200px]" title={c.image}>
-                              {c.image}
-                            </p>
+                            <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                              <span className="truncate" title={c.image}>{c.image}</span>
+                              <span className="text-slate-600">•</span>
+                              <span className="text-slate-500 text-[10px] flex-shrink-0">{c.id.slice(0, 12)}</span>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Status Badge */}
-                        <div className="flex flex-col items-end space-y-1">
+                        {/* Status & Ports */}
+                        <div className="flex flex-wrap items-center gap-2 xl:w-[22%]">
                           {isRunning ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
-                              Running
+                              RUNNING
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700 flex-shrink-0">
                               <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
-                              Exited
+                              EXITED
                             </span>
                           )}
 
                           {c.healthStatus && c.healthStatus !== 'none' && (
-                            <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded ${
+                            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded flex-shrink-0 ${
                               c.healthStatus === 'healthy' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
                             }`}>
                               {c.healthStatus}
                             </span>
                           )}
+
+                          {/* Ports */}
+                          {c.ports.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-1">
+                              {c.ports.map((p, idx) => (
+                                <span
+                                  key={idx}
+                                  className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-950/70 text-cyan-300 border border-blue-800/40 font-bold"
+                                  title={`Port Mapping: ${p.display}`}
+                                >
+                                  :{p.hostPort || p.containerPort}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] font-mono text-slate-500 italic">no ports</span>
+                          )}
                         </div>
-                      </div>
 
-                      {/* Meta Tags: Compose Project & Ports */}
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] font-mono">
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                          ID: {c.id}
-                        </span>
-
-                        {c.composeProject && (
-                          <span className="px-2 py-0.5 rounded bg-purple-950/70 text-purple-300 border border-purple-800/40">
-                            📁 {c.composeProject}
-                          </span>
-                        )}
-
-                        {c.ports.length > 0 && c.ports.map((p, idx) => (
-                          <span
-                            key={idx}
-                            className="px-2 py-0.5 rounded bg-blue-950/70 text-cyan-300 border border-blue-800/40 font-bold"
-                            title={`Port Mapping: ${p.display}`}
-                          >
-                            :{p.hostPort || p.containerPort}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Middle Card: Live Resource Stats */}
-                    <div className="p-4 py-3 flex-1 flex flex-col justify-center space-y-2.5 bg-[#050811]/60">
-                      {isRunning && stats ? (
-                        <div className="space-y-2 text-xs font-mono">
-                          {/* CPU */}
-                          <div>
-                            <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                              <span>CPU</span>
-                              <span className="text-cyan-300 font-bold">{stats.cpuPerc}</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
-                                style={{ width: `${Math.min(100, parseFloat(stats.cpuPerc) * 4 || 1)}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Memory */}
-                          <div>
-                            <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                              <span>RAM</span>
-                              <span className="text-emerald-300 font-bold">{stats.memUsage.split('/')[0].trim()}</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
-                                style={{ width: `${Math.min(100, parseFloat(stats.memPerc) || 1)}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Net I/O */}
-                          <div className="flex justify-between text-[10px] text-slate-500 pt-0.5">
-                            <span>Net I/O: {stats.netIO}</span>
-                            <span>PIDs: {stats.pids}</span>
-                          </div>
+                        {/* Live Metrics: CPU & RAM */}
+                        <div className="flex items-center gap-4 xl:w-[24%] font-mono text-xs">
+                          {isRunning && stats ? (
+                            <>
+                              <div className="w-1/2">
+                                <div className="flex justify-between text-[11px] text-slate-400 mb-0.5">
+                                  <span>CPU</span>
+                                  <span className="text-cyan-300 font-bold">{stats.cpuPerc}</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
+                                    style={{ width: `${Math.min(100, parseFloat(stats.cpuPerc) * 4 || 1)}%` }}
+                                  />
+                                </div>
+                              </div>
+                              <div className="w-1/2">
+                                <div className="flex justify-between text-[11px] text-slate-400 mb-0.5">
+                                  <span>RAM</span>
+                                  <span className="text-emerald-300 font-bold truncate">{stats.memUsage.split('/')[0].trim()}</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
+                                    style={{ width: `${Math.min(100, parseFloat(stats.memPerc) || 1)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-slate-500 text-xs italic font-mono truncate">
+                              {isRunning ? 'Đang đọc số liệu...' : (c.status || 'Đã dừng')}
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <div className="text-center py-2 text-slate-500 text-xs italic font-mono">
-                          {isRunning ? 'Đang thu thập số liệu tài nguyên...' : `Trạng thái: ${c.status}`}
-                        </div>
-                      )}
-                    </div>
 
-                    {/* Bottom Card: Action Controls */}
-                    <div className="p-3 border-t border-slate-800/80 bg-[#070b14] flex items-center justify-between gap-1.5">
-                      {/* Left: Start / Stop / Restart */}
-                      <div className="flex items-center space-x-1.5 flex-1">
-                        {isRunning ? (
+                        {/* Actions */}
+                        <div className="flex items-center space-x-1.5 flex-shrink-0 justify-end">
+                          {isRunning ? (
+                            <button
+                              onClick={() => handleContainerAction(c.id, 'stop')}
+                              disabled={isActionBusy}
+                              className="flex items-center space-x-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-50"
+                              title="Dừng container"
+                            >
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+                              <span>Stop</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleContainerAction(c.id, 'start')}
+                              disabled={isActionBusy}
+                              className="flex items-center space-x-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-sm shadow-blue-900/30 disabled:opacity-50"
+                              title="Khởi động container"
+                            >
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                              <span>Start</span>
+                            </button>
+                          )}
+
                           <button
-                            onClick={() => handleContainerAction(c.id, 'stop')}
+                            onClick={() => handleContainerAction(c.id, 'restart')}
                             disabled={isActionBusy}
-                            className="flex-1 flex items-center justify-center space-x-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-50"
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
+                            title="Khởi động lại container"
                           >
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
-                            <span>Stop</span>
+                            <svg className={`w-3.5 h-3.5 ${actionLoading[c.id] === 'restart' ? 'animate-spin text-cyan-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                           </button>
+
+                          <button
+                            onClick={() => setLogsContainer(c)}
+                            className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
+                            title="Xem Logs thời gian thực"
+                          >
+                            <span className="text-xs">📺</span>
+                          </button>
+
+                          <button
+                            onClick={() => setExecContainer(c)}
+                            disabled={!isRunning}
+                            className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                            title={isRunning ? "Mở Interactive Shell Terminal" : "Chỉ mở được shell khi container đang chạy"}
+                          >
+                            <span className="text-xs">💻</span>
+                          </button>
+
+                          <button
+                            onClick={() => setInspectContainer(c)}
+                            className="p-1.5 text-slate-400 hover:text-indigo-300 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
+                            title="Inspect chi tiết (ENV, IP, Mounts)"
+                          >
+                            <span className="text-xs">ℹ️</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteContainer(c.id, c.name)}
+                            disabled={isActionBusy}
+                            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700 disabled:opacity-30"
+                            title="Xóa container"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* GRID VIEW (LƯỚI) */
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {filteredContainers.map((c) => {
+                    const isRunning = c.isRunning;
+                    const isActionBusy = !!actionLoading[c.id];
+                    const stats = c.stats;
+
+                    return (
+                      <div
+                        key={c.id}
+                        className={`relative flex flex-col rounded-2xl border transition-all duration-200 overflow-hidden shadow-lg ${
+                          isRunning
+                            ? 'border-emerald-500/40 bg-gradient-to-b from-[#0b1424] to-[#080d18] shadow-emerald-950/20'
+                            : 'border-slate-800 hover:border-slate-700 bg-[#090e1a]'
+                        }`}
+                      >
+                        {/* Top Header Card */}
+                        <div className="p-4 pb-3 border-b border-slate-800/80 bg-[#070b14]/90 flex flex-col space-y-2.5">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center space-x-3">
+                              <span className="text-2xl">{getContainerIcon(c.name, c.image)}</span>
+                              <div>
+                                <div className="flex items-center space-x-2">
+                                  <h3 className="font-mono text-sm font-bold text-white tracking-wide truncate max-w-[180px]" title={c.name}>
+                                    {c.name}
+                                  </h3>
+                                </div>
+                                <p className="font-mono text-[11px] text-slate-400 truncate max-w-[200px]" title={c.image}>
+                                  {c.image}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Status Badge */}
+                            <div className="flex flex-col items-end space-y-1">
+                              {isRunning ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
+                                  Running
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
+                                  Exited
+                                </span>
+                              )}
+
+                              {c.healthStatus && c.healthStatus !== 'none' && (
+                                <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded ${
+                                  c.healthStatus === 'healthy' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
+                                }`}>
+                                  {c.healthStatus}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Meta Tags: Compose Project & Ports */}
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] font-mono">
+                            <span className="text-slate-500">ID: {c.id.slice(0, 10)}</span>
+                            {c.composeProject && (
+                              <span className="px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/40">
+                                📁 {c.composeProject}
+                              </span>
+                            )}
+                            {c.ports.map((p, idx) => (
+                              <span
+                                key={idx}
+                                className="px-1.5 py-0.5 rounded bg-blue-950 text-cyan-300 border border-blue-800/50"
+                                title={`Port mapping: ${p.display}`}
+                              >
+                                :{p.hostPort || p.containerPort}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Card Body: Live Performance Metrics */}
+                        <div className="p-4 flex-1 flex flex-col justify-center space-y-3 bg-[#070b13]/50">
+                          {isRunning && stats ? (
+                            <div className="space-y-2.5">
+                              <div>
+                                <div className="flex justify-between text-xs font-mono text-slate-400 mb-1">
+                                  <span className="flex items-center">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mr-1.5"></span>
+                                    CPU
+                                  </span>
+                                  <span className="font-bold text-cyan-300">{stats.cpuPerc}</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-500"
+                                    style={{ width: `${Math.min(100, parseFloat(stats.cpuPerc) * 4 || 1)}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="flex justify-between text-xs font-mono text-slate-400 mb-1">
+                                  <span className="flex items-center">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5"></span>
+                                    RAM ({stats.memPerc})
+                                  </span>
+                                  <span className="font-bold text-emerald-300 truncate max-w-[140px] text-right">
+                                    {stats.memUsage}
+                                  </span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500"
+                                    style={{ width: `${Math.min(100, parseFloat(stats.memPerc) || 1)}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-800/40">
+                                <span>NET I/O: {stats.netIO}</span>
+                                <span>BLOCK: {stats.blockIO}</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-center py-4 space-y-1">
+                              <p className="text-xs text-slate-500 italic font-mono">
+                                {isRunning ? 'Đang đọc số liệu container...' : (c.status || 'Container đang dừng')}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card Footer Actions */}
+                        <div className="px-4 py-3 bg-[#060910] border-t border-slate-800/80 flex items-center justify-between">
+                          {/* Left: Start/Stop/Restart */}
+                          <div className="flex items-center space-x-1.5">
+                            {isRunning ? (
+                              <button
+                                onClick={() => handleContainerAction(c.id, 'stop')}
+                                disabled={isActionBusy}
+                                className="flex items-center space-x-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white transition-all disabled:opacity-50"
+                                title="Dừng container"
+                              >
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+                                <span>Stop</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleContainerAction(c.id, 'start')}
+                                disabled={isActionBusy}
+                                className="flex items-center space-x-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-sm shadow-blue-900/30 disabled:opacity-50"
+                                title="Khởi động container"
+                              >
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                <span>Start</span>
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => handleContainerAction(c.id, 'restart')}
+                              disabled={isActionBusy}
+                              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
+                              title="Khởi động lại container"
+                            >
+                              <svg className={`w-3.5 h-3.5 ${actionLoading[c.id] === 'restart' ? 'animate-spin text-cyan-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            </button>
+                          </div>
+
+                          {/* Right: Logs, Exec Shell, Inspect, Delete */}
+                          <div className="flex items-center space-x-1">
+                            <button
+                              onClick={() => setLogsContainer(c)}
+                              className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition-colors"
+                              title="Xem Logs thời gian thực"
+                            >
+                              <span className="text-xs">📺</span>
+                            </button>
+
+                            <button
+                              onClick={() => setExecContainer(c)}
+                              disabled={!isRunning}
+                              className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={isRunning ? "Mở Interactive Shell Terminal" : "Chỉ mở được shell khi container đang chạy"}
+                            >
+                              <span className="text-xs">💻</span>
+                            </button>
+
+                            <button
+                              onClick={() => setInspectContainer(c)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-300 hover:bg-slate-800 rounded-lg transition-colors"
+                              title="Inspect chi tiết (ENV, IP, Mounts)"
+                            >
+                              <span className="text-xs">ℹ️</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteContainer(c.id, c.name)}
+                              disabled={isActionBusy}
+                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-30"
+                              title="Xóa container"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ================= TAB 2: IMAGES VIEW ================= */}
+          {dockerTab === 'images' && (
+            <div className="space-y-4">
+              {/* Search & Filter Bar */}
+              <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-[#0b101e]/90 border border-slate-800 p-3 rounded-2xl shadow-sm">
+                <div className="relative w-full md:w-80">
+                  <input
+                    type="text"
+                    value={imageSearchTerm}
+                    onChange={(e) => setImageSearchTerm(e.target.value)}
+                    placeholder="Tìm tên image, tag hoặc image ID..."
+                    className="w-full bg-[#060912] border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                </div>
+
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    onClick={() => setImageFilter('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      imageFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Tất cả ({images.length})
+                  </button>
+                  <button
+                    onClick={() => setImageFilter('in-use')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      imageFilter === 'in-use' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Đang dùng ({imageStats.inUse})
+                  </button>
+                  <button
+                    onClick={() => setImageFilter('unused')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      imageFilter === 'unused' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Chưa dùng ({imageStats.unused})
+                  </button>
+                </div>
+              </div>
+
+              {/* Images List */}
+              {imagesLoading && images.length === 0 ? (
+                <div className="bg-[#0b101e] border border-slate-800 rounded-2xl p-16 text-center flex flex-col items-center justify-center space-y-4 shadow-xl">
+                  <div className="w-12 h-12 border-3 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin"></div>
+                  <h3 className="text-base font-bold text-slate-200">Đang quét danh sách Docker Images...</h3>
+                </div>
+              ) : filteredImages.length === 0 ? (
+                <div className="bg-[#0b101e] border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+                  <span className="text-3xl">🖼️</span>
+                  <h3 className="text-base font-bold text-slate-300">Không tìm thấy Docker Image nào</h3>
+                  <p className="text-xs text-slate-500">
+                    {imageSearchTerm ? 'Không có image nào khớp với từ khóa tìm kiếm.' : 'Hệ thống chưa có image nào. Hãy nhấn "+ Kéo Image (Pull)" để tải về.'}
+                  </p>
+                  <button
+                    onClick={() => setShowPullModal(true)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold inline-flex items-center space-x-2"
+                  >
+                    <span>+ Kéo Image Ngay</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col space-y-2.5">
+                  {filteredImages.map((img) => (
+                    <div
+                      key={img.id}
+                      className="flex flex-col md:flex-row md:items-center justify-between p-3.5 rounded-xl border border-slate-800/90 hover:border-slate-700 bg-[#0a0e1a]/80 transition-all duration-150 gap-3 shadow-md"
+                    >
+                      {/* Left: Info */}
+                      <div className="flex items-center space-x-3.5 min-w-0 md:w-[45%]">
+                        <div className="p-2 bg-indigo-950/50 border border-indigo-800/40 rounded-xl text-indigo-400 flex-shrink-0">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center space-x-2">
+                            <h3 className="font-mono text-sm font-bold text-white tracking-wide truncate" title={img.repoTag}>
+                              {img.repository}
+                            </h3>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800/50 flex-shrink-0">
+                              {img.tag}
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                            <span className="text-slate-500 text-[10px]">ID: {img.id.slice(0, 12)}</span>
+                            <span className="text-slate-600">•</span>
+                            <span className="text-cyan-400 font-bold">{img.size}</span>
+                            <span className="text-slate-600">•</span>
+                            <span className="text-slate-500 text-[10px]">Tạo: {img.createdSince || img.createdAt}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Middle: Usage Status */}
+                      <div className="flex items-center space-x-2 md:w-[35%]">
+                        {img.inUse ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
+                              Đang dùng ({img.inUseBy.length})
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400 truncate max-w-[200px]" title={img.inUseBy.join(', ')}>
+                              bởi: {img.inUseBy.join(', ')}
+                            </span>
+                          </div>
                         ) : (
-                          <button
-                            onClick={() => handleContainerAction(c.id, 'start')}
-                            disabled={isActionBusy}
-                            className="flex-1 flex items-center justify-center space-x-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-sm shadow-blue-900/30 disabled:opacity-50"
-                          >
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                            <span>Start</span>
-                          </button>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
+                            Chưa gắn container
+                          </span>
                         )}
-
-                        <button
-                          onClick={() => handleContainerAction(c.id, 'restart')}
-                          disabled={isActionBusy}
-                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
-                          title="Khởi động lại container"
-                        >
-                          <svg className={`w-3.5 h-3.5 ${actionLoading[c.id] === 'restart' ? 'animate-spin text-cyan-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                        </button>
                       </div>
 
-                      {/* Right: Logs, Exec Shell, Inspect, Delete */}
-                      <div className="flex items-center space-x-1">
+                      {/* Right: Actions */}
+                      <div className="flex items-center space-x-2 justify-end">
                         <button
-                          onClick={() => setLogsContainer(c)}
-                          className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition-colors"
-                          title="Xem Logs thời gian thực"
+                          onClick={() => handleInspectImage(img.id, img.repoTag)}
+                          className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all"
+                          title="Xem thông tin chi tiết (Inspect)"
                         >
-                          <span className="text-xs">📺</span>
+                          <span>ℹ️ Inspect</span>
                         </button>
 
                         <button
-                          onClick={() => setExecContainer(c)}
-                          disabled={!isRunning}
-                          className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                          title={isRunning ? "Mở Interactive Shell Terminal" : "Chỉ mở được shell khi container đang chạy"}
-                        >
-                          <span className="text-xs">💻</span>
-                        </button>
-
-                        <button
-                          onClick={() => setInspectContainer(c)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-300 hover:bg-slate-800 rounded-lg transition-colors"
-                          title="Inspect chi tiết (ENV, IP, Mounts)"
-                        >
-                          <span className="text-xs">ℹ️</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteContainer(c.id, c.name)}
-                          disabled={isActionBusy}
-                          className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-30"
-                          title="Xóa container"
+                          onClick={() => handleRemoveImage(img.id, img.repoTag)}
+                          className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-950/40 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-800/40 transition-all"
+                          title="Xóa image khỏi máy"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                          <span>Xóa</span>
                         </button>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ================= TAB 3: VOLUMES VIEW ================= */}
+          {dockerTab === 'volumes' && (
+            <div className="space-y-4">
+              {/* Search & Filter Bar */}
+              <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-[#0b101e]/90 border border-slate-800 p-3 rounded-2xl shadow-sm">
+                <div className="relative w-full md:w-80">
+                  <input
+                    type="text"
+                    value={volumeSearchTerm}
+                    onChange={(e) => setVolumeSearchTerm(e.target.value)}
+                    placeholder="Tìm tên volume, driver..."
+                    className="w-full bg-[#060912] border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                  />
+                  <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                </div>
+
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    onClick={() => setVolumeFilter('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      volumeFilter === 'all' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Tất cả ({volumes.length})
+                  </button>
+                  <button
+                    onClick={() => setVolumeFilter('in-use')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      volumeFilter === 'in-use' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Đang gắn ({volumeStats.inUse})
+                  </button>
+                  <button
+                    onClick={() => setVolumeFilter('unused')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      volumeFilter === 'unused' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Chưa dùng ({volumeStats.unused})
+                  </button>
+                </div>
+              </div>
+
+              {/* Volumes List */}
+              {volumesLoading && volumes.length === 0 ? (
+                <div className="bg-[#0b101e] border border-slate-800 rounded-2xl p-16 text-center flex flex-col items-center justify-center space-y-4 shadow-xl">
+                  <div className="w-12 h-12 border-3 border-purple-500/20 border-t-purple-400 rounded-full animate-spin"></div>
+                  <h3 className="text-base font-bold text-slate-200">Đang quét danh sách Docker Volumes...</h3>
+                </div>
+              ) : filteredVolumes.length === 0 ? (
+                <div className="bg-[#0b101e] border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+                  <span className="text-3xl">💾</span>
+                  <h3 className="text-base font-bold text-slate-300">Không tìm thấy Docker Volume nào</h3>
+                  <p className="text-xs text-slate-500">
+                    {volumeSearchTerm ? 'Không có volume nào khớp với từ khóa tìm kiếm.' : 'Chưa có volume nào được tạo. Nhấn "+ Tạo Volume Mới" để thiết lập lưu trữ cố định.'}
+                  </p>
+                  <button
+                    onClick={() => setShowCreateVolumeModal(true)}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold inline-flex items-center space-x-2"
+                  >
+                    <span>+ Tạo Volume Mới</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col space-y-2.5">
+                  {filteredVolumes.map((v) => (
+                    <div
+                      key={v.name}
+                      className="flex flex-col md:flex-row md:items-center justify-between p-3.5 rounded-xl border border-slate-800/90 hover:border-slate-700 bg-[#0a0e1a]/80 transition-all duration-150 gap-3 shadow-md"
+                    >
+                      {/* Left: Info */}
+                      <div className="flex items-center space-x-3.5 min-w-0 md:w-[45%]">
+                        <div className="p-2 bg-purple-950/50 border border-purple-800/40 rounded-xl text-purple-400 flex-shrink-0">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center space-x-2">
+                            <h3 className="font-mono text-sm font-bold text-white tracking-wide truncate" title={v.name}>
+                              {v.name}
+                            </h3>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-purple-950 text-purple-300 border border-purple-800/40 flex-shrink-0">
+                              {v.driver || 'local'}
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                            <span className="text-slate-500 text-[10px] truncate" title={v.mountpoint}>
+                              Path: {v.mountpoint}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Middle: Usage Status */}
+                      <div className="flex items-center space-x-2 md:w-[35%]">
+                        {v.inUse ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
+                              Gắn bởi ({v.inUseBy.length})
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400 truncate max-w-[200px]" title={v.inUseBy.join(', ')}>
+                              {v.inUseBy.join(', ')}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
+                            Chưa gắn container
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Right: Actions */}
+                      <div className="flex items-center space-x-2 justify-end">
+                        <button
+                          onClick={() => handleInspectVolume(v.name)}
+                          className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all"
+                          title="Xem thông tin chi tiết (Inspect)"
+                        >
+                          <span>ℹ️ Inspect</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleRemoveVolume(v.name)}
+                          className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-950/40 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-800/40 transition-all"
+                          title="Xóa volume vĩnh viễn"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                          <span>Xóa</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -6745,10 +7722,35 @@
               onClose={() => setInspectContainer(null)}
             />
           )}
+
+          {/* Images & Volumes Modals */}
+          {showPullModal && (
+            <PullImageModal
+              isOpen={showPullModal}
+              onClose={() => setShowPullModal(false)}
+              onPull={handlePullImage}
+            />
+          )}
+
+          {showCreateVolumeModal && (
+            <CreateVolumeModal
+              isOpen={showCreateVolumeModal}
+              onClose={() => setShowCreateVolumeModal(false)}
+              onCreate={handleCreateVolume}
+            />
+          )}
+
+          {inspectModalData && (
+            <DockerInspectModal
+              isOpen={!!inspectModalData}
+              onClose={() => setInspectModalData(null)}
+              title={inspectModalData.title}
+              data={inspectModalData.json}
+            />
+          )}
         </div>
       );
     }
-
 
     // ================= SERVICE GRID CARD =================
     function ServiceGridCard({
