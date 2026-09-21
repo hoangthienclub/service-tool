@@ -3187,6 +3187,48 @@
       // Terminal Logs State for Scripts
       const [scriptLogs, setScriptLogs] = React.useState([]);
       const [activeRunningTask, setActiveRunningTask] = React.useState(null);
+      const [duplicatingId, setDuplicatingId] = React.useState(null);
+
+      const handleDuplicateScript = async (script) => {
+        try {
+          setDuplicatingId(script.id);
+          const rawName = script.name || 'Custom Script';
+          const match = rawName.match(/^(.*?)(?: \(Copy(?: (\d+))?\))?$/);
+          let newName = `${rawName} (Copy)`;
+          if (match) {
+            const base = match[1];
+            if (match[2]) {
+              newName = `${base} (Copy ${parseInt(match[2], 10) + 1})`;
+            } else if (rawName.endsWith('(Copy)')) {
+              newName = `${base} (Copy 2)`;
+            }
+          }
+
+          const res = await fetch('/api/scripts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: newName,
+              command: script.command,
+              icon: script.icon || '⚡',
+              cwdType: script.cwdType || 'workspace',
+              cwd: script.cwd,
+              file: script.file || '',
+              rawEnv: script.rawEnv || ''
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setScripts(data.scripts || []);
+          } else {
+            alert('Lỗi: ' + (data.error || 'Không thể nhân bản script'));
+          }
+        } catch (e) {
+          alert('Lỗi kết nối khi nhân bản: ' + e.message);
+        } finally {
+          setDuplicatingId(null);
+        }
+      };
 
       const fetchScripts = async () => {
         try {
@@ -3339,17 +3381,40 @@
                 scripts.map(s => (
                   <div
                     key={s.id}
-                    className="p-4 bg-[#0b101e] border border-slate-800 hover:border-slate-700 rounded-2xl transition-all flex flex-col space-y-3 shadow-lg"
+                    className="p-4 bg-[#0b101e] border border-slate-800 hover:border-slate-700 rounded-2xl transition-all flex flex-col space-y-3 shadow-lg overflow-hidden"
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-2xl p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/40">{s.icon || '⚡'}</span>
-                        <div>
-                          <h4 className="text-sm font-bold text-white">{s.name}</h4>
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-start space-x-3 min-w-0 flex-1">
+                        <span className="text-2xl p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/40 flex-shrink-0">{s.icon || '⚡'}</span>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-sm font-bold text-white break-words break-all leading-snug">{s.name}</h4>
+                          {s.command && s.command !== s.name && (
+                            <p className="text-[11px] font-mono text-slate-400 mt-1 break-words break-all line-clamp-2 bg-slate-900/60 p-1.5 rounded border border-slate-800/80" title={s.command}>
+                              <span className="text-amber-400 select-none">$ </span>{s.command}
+                            </p>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-1">
+                      <div className="flex items-center space-x-1 flex-shrink-0 ml-1">
+                        <button
+                          onClick={() => handleDuplicateScript(s)}
+                          disabled={duplicatingId === s.id}
+                          className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-amber-950/30 rounded-lg transition-colors disabled:opacity-50"
+                          title="Nhân bản script (Duplicate)"
+                        >
+                          {duplicatingId === s.id ? (
+                            <svg className="w-4 h-4 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                          )}
+                        </button>
                         <button
                           onClick={() => {
                             setEditingScript(s);
@@ -3370,18 +3435,18 @@
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-xs">
-                      <div className="flex items-center space-x-2 overflow-hidden">
-                        <span className="text-slate-400 font-mono text-[11px] truncate max-w-[180px]" title={s.cwd}>
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-xs gap-2">
+                      <div className="flex items-center space-x-2 overflow-hidden min-w-0 flex-1">
+                        <span className="text-slate-400 font-mono text-[11px] truncate" title={s.cwd}>
                           📁 {s.cwd ? (s.cwd === workspaceRoot ? 'Workspace Root' : s.cwd.split('/').slice(-2).join('/')) : 'Workspace Root'}
                         </span>
                         {s.rawEnv ? (
-                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-emerald-950/40 text-emerald-300 border border-emerald-800/40 flex items-center space-x-0.5" title="Đã cấu hình thêm biến môi trường riêng">
+                          <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-emerald-950/40 text-emerald-300 border border-emerald-800/40 flex items-center space-x-0.5 flex-shrink-0" title="Đã cấu hình thêm biến môi trường riêng">
                             <span>🌿</span>
                             <span>+ENV</span>
                           </span>
                         ) : (
-                          <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-slate-800/80 text-slate-400 border border-slate-700/60" title="Tự động nạp ENV từ thư mục hoặc Service Profile">
+                          <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-slate-800/80 text-slate-400 border border-slate-700/60 flex-shrink-0" title="Tự động nạp ENV từ thư mục hoặc Service Profile">
                             🌿 Auto ENV
                           </span>
                         )}
@@ -3390,7 +3455,7 @@
                       <button
                         onClick={() => handleRunScript(s)}
                         disabled={!!activeRunningTask}
-                        className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-md shadow-blue-950/40 flex items-center space-x-1.5 transition-all"
+                        className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-md shadow-blue-950/40 flex items-center space-x-1.5 transition-all flex-shrink-0"
                       >
                         <span>▶</span>
                         <span>Chạy Ngay</span>
@@ -3992,6 +4057,61 @@
         return () => eventSource.close();
       }, []);
 
+      const [duplicatingTunnelId, setDuplicatingTunnelId] = React.useState(null);
+
+      const handleDuplicateTunnel = async (tunnel) => {
+        try {
+          setDuplicatingTunnelId(tunnel.id);
+          const rawName = tunnel.name || 'SSH Tunnel';
+          const match = rawName.match(/^(.*?)(?: \(Copy(?: (\d+))?\))?$/);
+          let newName = `${rawName} (Copy)`;
+          if (match) {
+            const base = match[1];
+            if (match[2]) {
+              newName = `${base} (Copy ${parseInt(match[2], 10) + 1})`;
+            } else if (rawName.endsWith('(Copy)')) {
+              newName = `${base} (Copy 2)`;
+            }
+          }
+
+          const clonedTunnel = {
+            name: newName,
+            localPort: tunnel.localPort,
+            remoteHost: tunnel.remoteHost || '127.0.0.1',
+            remotePort: tunnel.remotePort,
+            sshHost: tunnel.sshHost || '',
+            sshPort: tunnel.sshPort || 22,
+            sshUser: tunnel.sshUser || '',
+            identityFile: tunnel.identityFile || tunnel.sshKeyPath || '',
+            sshKeyPath: tunnel.sshKeyPath || tunnel.identityFile || '',
+            authType: tunnel.authType || 'key',
+            password: tunnel.password || '',
+            jumpHost: tunnel.jumpHost || '',
+            autoStart: false,
+            description: tunnel.description || ''
+          };
+
+          const res = await fetch('/api/tunnels', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(clonedTunnel)
+          });
+          const data = await res.json();
+          if (data.success) {
+            await fetchTunnels();
+            if (data.tunnel?.id) {
+              setSelectedTunnelId(data.tunnel.id);
+            }
+          } else {
+            alert('Lỗi khi nhân bản tunnel: ' + (data.error || 'Không rõ lỗi'));
+          }
+        } catch (e) {
+          alert('Lỗi kết nối khi nhân bản tunnel: ' + e.message);
+        } finally {
+          setDuplicatingTunnelId(null);
+        }
+      };
+
       const handleSaveTunnel = async (tunnelData) => {
         const url = tunnelData.id ? `/api/tunnels/${encodeURIComponent(tunnelData.id)}` : '/api/tunnels';
         const method = tunnelData.id ? 'PUT' : 'POST';
@@ -4002,11 +4122,9 @@
         });
         const data = await res.json();
         if (data.success) {
-          setTunnels(data.tunnels || []);
-          if (!selectedTunnelId && data.tunnels?.length > 0) {
-            const newId = data.tunnels[data.tunnels.length - 1].id;
-            setSelectedTunnelId(newId);
-            fetchTunnelLogs(newId);
+          await fetchTunnels();
+          if (data.tunnel?.id) {
+            setSelectedTunnelId(data.tunnel.id);
           }
         } else {
           throw new Error(data.error || 'Lưu thất bại');
@@ -4215,10 +4333,10 @@
                         isSelected ? 'border-cyan-500/80 ring-1 ring-cyan-500/40' : 'border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      {/* Top row: Name, status badge, edit/delete */}
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-3">
-                          <span className={`text-2xl p-2.5 rounded-xl border ${
+                      {/* Top row: Name, status badge, edit/duplicate/delete */}
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex items-start space-x-3 min-w-0 flex-1">
+                          <span className={`text-2xl p-2.5 rounded-xl border flex-shrink-0 ${
                             isConnected ? 'bg-emerald-950/40 border-emerald-800/40 text-emerald-400' :
                             isConnecting ? 'bg-amber-950/40 border-amber-800/40 text-amber-400' :
                             isError ? 'bg-rose-950/40 border-rose-800/40 text-rose-400' :
@@ -4226,11 +4344,11 @@
                           }`}>
                             🔀
                           </span>
-                          <div>
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center space-x-2">
-                              <h4 className="text-sm font-bold text-white">{t.name}</h4>
+                              <h4 className="text-sm font-bold text-white break-words break-all leading-snug">{t.name}</h4>
                               {t.autoStart && (
-                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-cyan-950/40 text-cyan-400 border border-cyan-800/40">
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-cyan-950/40 text-cyan-400 border border-cyan-800/40 flex-shrink-0">
                                   AUTO
                                 </span>
                               )}
@@ -4262,7 +4380,25 @@
                           </div>
                         </div>
 
-                        <div className="flex items-center space-x-1" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center space-x-1 flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleDuplicateTunnel(t)}
+                            disabled={duplicatingTunnelId === t.id}
+                            className="p-1.5 text-slate-400 hover:text-cyan-400 hover:bg-cyan-950/30 rounded-lg transition-colors disabled:opacity-50"
+                            title="Nhân bản (Duplicate Tunnel)"
+                          >
+                            {duplicatingTunnelId === t.id ? (
+                              <svg className="w-4 h-4 text-cyan-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                              </svg>
+                            )}
+                          </button>
                           <button
                             onClick={() => {
                               setEditingTunnel(t);
