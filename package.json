@@ -1,6 +1,6 @@
 {
   "name": "service-monitor-dashboard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local Dev Service Monitor & Env Manager Dashboard for Microservices",
   "main": "server/index.js",
   "type": "commonjs",

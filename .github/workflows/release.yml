@@ -106,7 +106,6 @@ jobs:
             - **Custom Scripts & SSH**: Thực thi script bảo trì, đồng bộ database, quản lý SSH terminal từ xa.
             - **Độc lập, khởi chạy ngay**: Đã đóng gói kèm đầy đủ runtime, giải nén là chạy không cần cài đặt phức tạp.
           files: |
-            Service-Monitor-macOS-arm64.zip
-            Service-Monitor-Windows-x64.zip
+            **/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
