@@ -33,13 +33,15 @@ cp "main.electron.js" "$APP_RESOURCES/"
 cp -R "server" "$APP_RESOURCES/"
 cp -R "dist" "$APP_RESOURCES/"
 
-# Cài đặt / sao chép production node_modules
-mkdir -p "$APP_RESOURCES/node_modules"
-for dep in cors express cross-spawn tree-kill ssh2 ws safer-buffer; do
-  if [ -d "node_modules/$dep" ]; then
-    cp -R "node_modules/$dep" "$APP_RESOURCES/node_modules/"
-  fi
-done
+# Cài đặt đầy đủ production dependencies vào bundle
+echo "📦 Đang cài đặt production dependencies độc lập..."
+if (cd "$APP_RESOURCES" && npm install --omit=dev --no-audit --no-fund); then
+  echo "✅ Đã cài đặt hoàn chỉnh production dependencies."
+else
+  echo "⚠️ Không thể chạy npm install độc lập, sao chép từ node_modules cục bộ..."
+  mkdir -p "$APP_RESOURCES/node_modules"
+  cp -R node_modules/* "$APP_RESOURCES/node_modules/" 2>/dev/null || true
+fi
 
 # Đảm bảo package.json trong app trỏ main vào main.electron.js
 node -e "
@@ -72,9 +74,11 @@ codesign --force --deep --sign - "$TARGET_APP" 2>/dev/null || true
 
 # 6. Tạo file nén zip đóng gói 1 file duy nhất
 echo "📦 5/5. Tạo file nén ứng dụng độc lập (.zip)..."
-ZIP_FILE="$RELEASE_DIR/Service-Monitor-mac.zip"
-rm -f "$ZIP_FILE" "$DMG_FILE" 2>/dev/null || true
+ZIP_FILE="$RELEASE_DIR/Service-Monitor-macOS-arm64.zip"
+ZIP_ALIAS="$RELEASE_DIR/Service-Monitor-mac.zip"
+rm -f "$ZIP_FILE" "$ZIP_ALIAS" "$DMG_FILE" 2>/dev/null || true
 ditto -c -k --sequesterRsrc --keepParent "$TARGET_APP" "$ZIP_FILE" 2>/dev/null || true
+cp "$ZIP_FILE" "$ZIP_ALIAS" 2>/dev/null || true
 
 # Thử tạo file .dmg
 hdiutil create -volname "$APP_NAME" -srcfolder "$TARGET_APP" -ov -format UDZO "$DMG_FILE" -quiet 2>/dev/null || true

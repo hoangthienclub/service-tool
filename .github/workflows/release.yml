@@ -1,0 +1,112 @@
+name: Build and Release Service Monitor
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS (Apple Silicon arm64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Web Client
+        run: npm run build:client
+
+      - name: Package macOS App
+        run: |
+          chmod +x scripts/build-mac-app.sh
+          bash scripts/build-mac-app.sh
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Service-Monitor-macOS-arm64
+          path: release/Service-Monitor-macOS-arm64.zip
+
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Web Client
+        run: npm run build:client
+
+      - name: Package Windows App
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/build-win-app.ps1
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Service-Monitor-Windows-x64
+          path: release/Service-Monitor-Windows-x64.zip
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Service-Monitor-macOS-arm64
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Service-Monitor-Windows-x64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Service Monitor ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## ⚡ Service Monitor & Env Manager ${{ github.ref_name }}
+            Bảng điều khiển quản lý Microservices cục bộ, điều phối Env Profiles và Custom Scripts chuyên nghiệp.
+
+            ### 📥 Tải Về / Downloads:
+            - 🍏 **macOS (Apple Silicon M1/M2/M3/M4)**: `Service-Monitor-macOS-arm64.zip`
+            - 🪟 **Windows (10/11 64-bit)**: `Service-Monitor-Windows-x64.zip`
+
+            ### ✨ Tính Năng Nổi Bật:
+            - **Quản lý Microservices tập trung**: Khởi động, dừng, xem log ANSI trực tiếp, tự động giải phóng port (`Kill Port`).
+            - **Điều phối Env Profiles đa tầng**: Chuyển đổi môi trường `local`, `dev`, `staging`, `production` chỉ với 1 cú click.
+            - **Custom Scripts & SSH**: Thực thi script bảo trì, đồng bộ database, quản lý SSH terminal từ xa.
+            - **Độc lập, khởi chạy ngay**: Đã đóng gói kèm đầy đủ runtime, giải nén là chạy không cần cài đặt phức tạp.
+          files: |
+            Service-Monitor-macOS-arm64.zip
+            Service-Monitor-Windows-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

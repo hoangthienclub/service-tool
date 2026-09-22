@@ -13,6 +13,7 @@
     "app": "xattr -cr node_modules/electron 2>/dev/null; codesign --force --deep --sign - node_modules/electron/dist/Electron.app 2>/dev/null; electron main.electron.js",
     "app:mac": "xattr -cr node_modules/electron 2>/dev/null; codesign --force --deep --sign - node_modules/electron/dist/Electron.app 2>/dev/null; electron main.electron.js",
     "dist:mac": "bash scripts/build-mac-app.sh",
+    "dist:win": "powershell -ExecutionPolicy Bypass -File scripts/build-win-app.ps1",
     "package": "bash scripts/build-mac-app.sh",
     "start": "NODE_ENV=production node server/index.js"
   },
