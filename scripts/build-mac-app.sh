@@ -51,12 +51,18 @@ fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 "
 
 # 4. Cập nhật Info.plist (Tên hiển thị & Bundle ID)
-echo "⚙️ 3/5. Cập nhật thông tin Info.plist..."
+echo "⚙️ 3/5. Cập nhật thông tin Info.plist & App Icon..."
 PLIST="$TARGET_APP/Contents/Info.plist"
 if [ -f "$PLIST" ]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName '$APP_NAME'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string '$APP_NAME'" "$PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :CFBundleName '$APP_NAME'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string '$APP_NAME'" "$PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier 'com.els.servicemonitor'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string 'com.els.servicemonitor'" "$PLIST" 2>/dev/null || true
+fi
+
+# Sao chép AppIcon tuỳ chỉnh
+if [ -f "$DIR/assets/icon.icns" ]; then
+  cp "$DIR/assets/icon.icns" "$TARGET_APP/Contents/Resources/electron.icns"
+  cp "$DIR/assets/icon.icns" "$TARGET_APP/Contents/Resources/AppIcon.icns"
 fi
 
 # 5. Gỡ bỏ thuộc tính cách ly & ký mã ad-hoc (tránh lỗi macOS chặn)
