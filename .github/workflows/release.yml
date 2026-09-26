@@ -26,9 +26,6 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Build Web Client
-        run: npm run build:client
-
       - name: Package macOS App
         run: |
           chmod +x scripts/build-mac-app.sh
@@ -55,9 +52,6 @@ jobs:
 
       - name: Install Dependencies
         run: npm ci
-
-      - name: Build Web Client
-        run: npm run build:client
 
       - name: Package Windows App
         run: |

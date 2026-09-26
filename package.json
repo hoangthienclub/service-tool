@@ -8,8 +8,6 @@
     "dev:server": "node server/index.js",
     "dev:client": "vite client",
     "dev": "node server/index.js",
-    "build:client": "vite build client --outDir ../dist",
-    "build": "npm run build:client",
     "app": "xattr -cr node_modules/electron 2>/dev/null; codesign --force --deep --sign - node_modules/electron/dist/Electron.app 2>/dev/null; electron main.electron.js",
     "app:mac": "xattr -cr node_modules/electron 2>/dev/null; codesign --force --deep --sign - node_modules/electron/dist/Electron.app 2>/dev/null; electron main.electron.js",
     "dist:mac": "bash scripts/build-mac-app.sh",
