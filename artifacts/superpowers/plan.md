@@ -1,54 +1,55 @@
-# Implementation Plan: GitHub Actions Release cho Service-Tool
+# Superpowers Implementation Plan - Giới Hạn Tối Đa 100 Dòng Log Mới Nhất
 
-## Bối Cảnh & Mục Tiêu
-Áp dụng cơ chế tự động Release tương tự QuickSnag cho dự án `service-tool` (`dashboard/` -> `git@github.com:hoangthienclub/service-tool.git`).
-Tạo quy trình CI/CD hỗ trợ build độc lập 2 nền tảng: macOS (arm64) và Windows (x64) kèm đính kèm file nén trực tiếp vào GitHub Releases.
+## Goal
+Cấu hình và đồng bộ toàn bộ hệ thống (Node.js Server, SSE Endpoint, API REST và React Frontend) để chỉ lưu trữ và hiển thị tối đa **100 dòng log mới nhất** cho mỗi service. Đảm bảo khi vượt quá 100 dòng, các dòng log cũ hơn sẽ tự động bị loại bỏ (FIFO), giúp tối ưu hóa tối đa RAM và CPU.
 
-## Kế Hoạch Từng Bước (Steps)
+## Assumptions
+- File giao diện chính phục vụ người dùng là `dist/index.html` (đồng thời đồng bộ file nguồn `client/src/App.jsx`).
+- Backend quản lý buffer tại `server/services/process-manager.js` và phát SSE tại `server/index.js`.
+- 100 dòng log là hoàn toàn đáp ứng đầy đủ nhu cầu quan sát trạng thái tức thời của các service trong môi trường local development.
 
-### Bước 1: Nâng cấp script đóng gói macOS (`scripts/build-mac-app.sh`)
-- Sửa lỗi thiếu dependencies (như `body-parser`) bằng cách chạy `npm install --omit=dev --no-audit --no-fund` trong thư mục `Contents/Resources/app`.
-- Đảm bảo file zip xuất ra có tên chuẩn `Service-Monitor-macOS-arm64.zip`.
+## Plan
 
-### Bước 2: Tạo script đóng gói Windows (`scripts/build-win-app.ps1`)
-- Tạo kịch bản PowerShell chuẩn hóa cho Windows:
-  1. Khởi tạo thư mục release `release/Service-Monitor-win-x64`.
-  2. Copy runtime Electron x64 từ `node_modules/electron/dist/`.
-  3. Đổi tên `electron.exe` thành `Service Monitor.exe`.
-  4. Chuẩn bị `resources/app`: chép `package.json`, `main.electron.js`, `server/`, `dist/`.
-  5. Đổi entrypoint `main` trong `resources/app/package.json` sang `main.electron.js`.
-  6. Chạy `npm install --omit=dev --no-audit --no-fund` trong `resources/app`.
-  7. Nén thành `release/Service-Monitor-Windows-x64.zip`.
+### Bước 1: Giới hạn Buffer trong Backend Node.js
+- **Files**: `server/services/process-manager.js`, `server/index.js`
+- **Change**:
+  - Trong `server/services/process-manager.js`:
+    - Đặt `const MAX_LOG_LINES = 100;` (thay cho 800).
+    - Cập nhật hàm `getAllLogs(maxLinesPerService = 100)` mặc định trả về 100 dòng thay vì 300 dòng.
+  - Trong `server/index.js`:
+    - Cập nhật sự kiện SSE `initial-state`: gọi `processManager.getAllLogs(100)`.
+    - Cập nhật endpoint `/api/services/:id/logs`: chỉ trả về tối đa 100 dòng log gần nhất (`slice(-100)`).
+- **Verify**:
+  - Chạy `node --check server/index.js && node --check server/services/process-manager.js`.
+  - Chạy unit test in 250 dòng log vào một service thử nghiệm; kiểm tra `processManager.getLogBuffer('test')` xác nhận độ dài mảng luôn `<= 100`.
 
-### Bước 3: Tạo workflow GitHub Actions (`.github/workflows/release.yml`)
-- Cấu hình kích hoạt khi push tag `v*` hoặc qua `workflow_dispatch`.
-- Job 1: `build-macos` trên `macos-14`:
-  - `actions/setup-node@v4` với Node.js 20.
-  - `npm ci`
-  - `npm run build:client`
-  - `bash scripts/build-mac-app.sh`
-  - Upload artifact `Service-Monitor-macOS-arm64`.
-- Job 2: `build-windows` trên `windows-latest`:
-  - `actions/setup-node@v4` với Node.js 20.
-  - `npm ci`
-  - `npm run build:client`
-  - `powershell -ExecutionPolicy Bypass -File scripts/build-win-app.ps1`
-  - Upload artifact `Service-Monitor-Windows-x64`.
-- Job 3: `release` trên `ubuntu-latest`:
-  - Thu thập cả 2 artifacts.
-  - Tạo GitHub Release qua `softprops/action-gh-release@v2`.
-  - Hiển thị bảng download và mô tả tính năng.
+### Bước 2: Giới hạn State và DOM Log trong Frontend
+- **Files**: `dist/index.html`, `client/src/App.jsx`
+- **Change**:
+  - Trong `dist/index.html`:
+    - Trong listener `service-logs-batch`: Cắt mảng log ở mức 100 dòng: `merged.length > 100 ? merged.slice(-100) : merged`.
+    - Trong listener `service-log`: Cắt mảng log ở mức 100 dòng: `merged.length > 100 ? merged.slice(-100) : merged`.
+    - Trong sự kiện `initial-state`: Đảm bảo mảng log ban đầu nạp vào state được giới hạn tối đa 100 dòng.
+    - Trong `fetchServiceLogs`: Cắt mảng log tải về ở mức 100 dòng.
+  - Trong `client/src/App.jsx`:
+    - Cập nhật tương tự cho các listener `service-logs-batch` và `service-log` với `slice(-100)`.
+- **Verify**:
+  - Kiểm tra cú pháp file bằng node script.
+  - Kiểm tra độ dài mảng state `logsMap` trong React Component xác nhận không bao giờ vượt quá 100 phần tử.
 
-### Bước 4: Cập nhật `package.json`
-- Bổ sung lệnh scripts tiện lợi:
-  - `"dist:win": "powershell -ExecutionPolicy Bypass -File scripts/build-win-app.ps1"`
+### Bước 3: Kiểm tra Tổng thể & Xác nhận Hiển thị
+- **Files**: Toàn bộ dự án
+- **Change**:
+  - Khởi động service in log nhanh liên tục (ví dụ chạy lệnh in 500 dòng).
+  - Quan sát số lượng dòng hiển thị trên header của terminal: `(100 lines)`.
+- **Verify**:
+  - Header terminal dừng ở `(100 lines)` và không tăng thêm.
+  - Log mới liên tục cuộn mượt mà ở cuối terminal, log cũ biến mất dần.
+  - RAM ổn định ở mức tối thiểu.
 
-### Bước 5: Kiểm tra cục bộ & Commit
-- Chạy kiểm tra local syntax và build thử giao diện (`npm run build:client`).
-- Commit các thay đổi vào nhánh `develop`.
-- Hướng dẫn người dùng push hoặc push tag `v1.0.0` để kích hoạt workflow.
+## Risks & mitigations
+- **Rủi ro**: 100 dòng có thể bị trôi nhanh nếu service in log quá nhiều trong 1 giây?
+  - *Giải pháp*: Nhờ có cơ chế micro-batching 80ms đã làm ở lượt trước, log được cập nhật theo từng nhịp 80ms, giao diện hiển thị mượt mà không bị giật, developer vẫn theo dõi được đầy đủ các thông tin output mới nhất.
 
-## Kế Hoạch Xác Minh (Verification)
-1. Kiểm tra build client: `npm run build:client` tạo `dist/` thành công.
-2. Kiểm tra script macOS: `bash scripts/build-mac-app.sh` tạo file zip không còn lỗi thiếu `body-parser`.
-3. Kiểm tra GitHub Actions: Sau khi push tag, theo dõi cả 2 job macOS và Windows pass và xuất hiện trên GitHub Releases.
+## Rollback plan
+- Sử dụng Git checkpoint (`git checkout server/ dist/index.html client/`) để khôi phục lại giới hạn trước đó nếu cần.

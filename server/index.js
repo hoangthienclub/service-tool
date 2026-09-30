@@ -18,6 +18,7 @@ const DIST_DIR = path.resolve(__dirname, '../dist');
 const sseClients = new Set();
 
 function sendSseEvent(eventType, data) {
+  if (sseClients.size === 0) return;
   const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of sseClients) {
     try {
@@ -28,8 +29,32 @@ function sendSseEvent(eventType, data) {
   }
 }
 
+// Micro-batching for high-frequency logs (80ms window to protect client from rendering churn)
+let pendingLogBatch = [];
+let logBatchTimer = null;
+
+function flushLogBatch() {
+  if (pendingLogBatch.length === 0) return;
+  const batch = pendingLogBatch;
+  pendingLogBatch = [];
+  logBatchTimer = null;
+  sendSseEvent('service-logs-batch', batch);
+}
+
+function queueLogForSse(data) {
+  pendingLogBatch.push(data);
+  if (pendingLogBatch.length >= 60) {
+    if (logBatchTimer) clearTimeout(logBatchTimer);
+    flushLogBatch();
+    return;
+  }
+  if (!logBatchTimer) {
+    logBatchTimer = setTimeout(flushLogBatch, 80);
+  }
+}
+
 // Forward events to SSE
-processManager.on('log', (data) => sendSseEvent('service-log', data));
+processManager.on('log', (data) => queueLogForSse(data));
 processManager.on('status-change', (data) => sendSseEvent('status-change', data));
 processManager.on('log-cleared', (data) => sendSseEvent('log-cleared', data));
 tunnelManager.on('tunnel-status-changed', (data) => sendSseEvent('tunnel-status-changed', data));
@@ -107,7 +132,7 @@ const server = http.createServer(async (req, res) => {
     res.write(`event: initial-state\ndata: ${JSON.stringify({
       statuses: processManager.getAllStatuses(),
       services: envManager.getServices(),
-      logs: processManager.getAllLogs(300)
+      logs: processManager.getAllLogs(100)
     })}\n\n`);
 
     req.on('close', () => {
@@ -618,7 +643,7 @@ const server = http.createServer(async (req, res) => {
       const matchLogs = pathname.match(/^\/api\/services\/([^/]+)\/logs$/);
       if (matchLogs && method === 'GET') {
         const serviceId = decodeURIComponent(matchLogs[1]);
-        const logs = processManager.getLogBuffer(serviceId);
+        const logs = processManager.getLogBuffer(serviceId).slice(-100);
         return sendJson(res, 200, { success: true, logs });
       }
 

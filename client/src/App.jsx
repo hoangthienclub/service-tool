@@ -71,15 +71,41 @@ export default function App() {
       );
     });
 
+    eventSource.addEventListener('service-logs-batch', (e) => {
+      try {
+        const batch = JSON.parse(e.data);
+        if (!Array.isArray(batch) || batch.length === 0) return;
+        setLogsMap((prev) => {
+          const next = { ...prev };
+          const byService = {};
+          for (const item of batch) {
+            if (!item || !item.serviceId) continue;
+            if (!byService[item.serviceId]) byService[item.serviceId] = [];
+            byService[item.serviceId].push(item);
+          }
+          for (const [sId, items] of Object.entries(byService)) {
+            const cur = next[sId] || [];
+            const merged = cur.concat(items);
+            next[sId] = merged.length > 100 ? merged.slice(-100) : merged;
+          }
+          return next;
+        });
+      } catch (err) {}
+    });
+
     eventSource.addEventListener('service-log', (e) => {
-      const data = JSON.parse(e.data);
-      setLogsMap((prev) => {
-        const current = prev[data.serviceId] || [];
-        return {
-          ...prev,
-          [data.serviceId]: [...current.slice(-1999), data]
-        };
-      });
+      try {
+        const data = JSON.parse(e.data);
+        if (!data || !data.serviceId) return;
+        setLogsMap((prev) => {
+          const current = prev[data.serviceId] || [];
+          const merged = [...current, data];
+          return {
+            ...prev,
+            [data.serviceId]: merged.length > 100 ? merged.slice(-100) : merged
+          };
+        });
+      } catch (err) {}
     });
 
     eventSource.addEventListener('log-cleared', (e) => {

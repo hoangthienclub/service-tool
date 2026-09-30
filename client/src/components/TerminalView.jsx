@@ -23,7 +23,12 @@ export default function TerminalView({
   const renderedLogs = useMemo(() => {
     if (!logs || logs.length === 0) return '';
     return logs
-      .map(log => ansi.ansi_to_html(log.text || ''))
+      .map(log => {
+        if (!log._parsedHtml) {
+          log._parsedHtml = ansi.ansi_to_html(log.text || '');
+        }
+        return log._parsedHtml;
+      })
       .join('');
   }, [logs, ansi]);
 

@@ -152,16 +152,14 @@
           const data = await res.json();
           if (data.success) {
             setServices(data.services);
-            if (!selectedServiceId && data.services.length > 0) {
-              setSelectedServiceId(data.services[0].id);
-            }
+            setSelectedServiceId(prev => prev || (data.services.length > 0 ? data.services[0].id : ''));
           }
         } catch (err) {
           console.error('Failed to fetch services:', err);
         } finally {
           setIsRefreshing(false);
         }
-      }, [selectedServiceId]);
+      }, []);
 
       const fetchServiceLogs = async (serviceId) => {
         if (!serviceId) return;
@@ -171,7 +169,7 @@
           if (data.success && Array.isArray(data.logs)) {
             setLogsMap(prev => ({
               ...prev,
-              [serviceId]: data.logs
+              [serviceId]: data.logs.slice(-100)
             }));
           }
         } catch (e) {}
@@ -198,13 +196,14 @@
               statusInfo: data.statuses[s.id] || { status: 'STOPPED' }
             }));
             setServices(combined);
+            setSelectedServiceId(prev => prev || (data.services.length > 0 ? data.services[0].id : ''));
           }
           if (data.logs && typeof data.logs === 'object') {
             setLogsMap((prev) => {
               const next = { ...prev };
               for (const [id, entries] of Object.entries(data.logs)) {
                 if (!next[id] || next[id].length === 0) {
-                  next[id] = entries;
+                  next[id] = Array.isArray(entries) ? entries.slice(-100) : [];
                 }
               }
               return next;
@@ -223,15 +222,41 @@
           );
         });
 
+        eventSource.addEventListener('service-logs-batch', (e) => {
+          try {
+            const batch = JSON.parse(e.data);
+            if (!Array.isArray(batch) || batch.length === 0) return;
+            setLogsMap((prev) => {
+              const next = { ...prev };
+              const byService = {};
+              for (const item of batch) {
+                if (!item || !item.serviceId) continue;
+                if (!byService[item.serviceId]) byService[item.serviceId] = [];
+                byService[item.serviceId].push(item);
+              }
+              for (const [sId, items] of Object.entries(byService)) {
+                const cur = next[sId] || [];
+                const merged = cur.concat(items);
+                next[sId] = merged.length > 100 ? merged.slice(-100) : merged;
+              }
+              return next;
+            });
+          } catch (err) {}
+        });
+
         eventSource.addEventListener('service-log', (e) => {
-          const data = JSON.parse(e.data);
-          setLogsMap((prev) => {
-            const current = prev[data.serviceId] || [];
-            return {
-              ...prev,
-              [data.serviceId]: [...current.slice(-1999), data]
-            };
-          });
+          try {
+            const data = JSON.parse(e.data);
+            if (!data || !data.serviceId) return;
+            setLogsMap((prev) => {
+              const current = prev[data.serviceId] || [];
+              const merged = [...current, data];
+              return {
+                ...prev,
+                [data.serviceId]: merged.length > 100 ? merged.slice(-100) : merged
+              };
+            });
+          } catch (err) {}
         });
 
         eventSource.addEventListener('log-cleared', (e) => {
@@ -5691,7 +5716,10 @@
 
       React.useEffect(() => {
         if (!autoRefresh) return;
-        const interval = setInterval(fetchLogs, 3000);
+        const interval = setInterval(() => {
+          if (typeof document !== 'undefined' && document.hidden) return;
+          fetchLogs();
+        }, 3000);
         return () => clearInterval(interval);
       }, [autoRefresh, fetchLogs]);
 
@@ -6549,8 +6577,9 @@
 
       React.useEffect(() => {
         fetchContainers(true);
-        // Polling background metrics every 6s
+        // Polling background metrics every 6s only when tab/window is visible
         const interval = setInterval(() => {
+          if (typeof document !== 'undefined' && document.hidden) return;
           fetchContainers(false);
         }, 6000);
         return () => clearInterval(interval);
@@ -8236,7 +8265,12 @@
 
       const renderedLogs = useMemo(() => {
         if (!filteredLogs || filteredLogs.length === 0) return '';
-        return filteredLogs.map(l => parseAnsi(l.text || '')).join('');
+        return filteredLogs.map(l => {
+          if (!l._parsedHtml) {
+            l._parsedHtml = parseAnsi(l.text || '');
+          }
+          return l._parsedHtml;
+        }).join('');
       }, [filteredLogs]);
 
       useEffect(() => {

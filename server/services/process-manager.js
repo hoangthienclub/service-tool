@@ -70,7 +70,7 @@ function getEnhancedPath() {
 
 process.env.PATH = getEnhancedPath();
 
-const MAX_LOG_LINES = 2000;
+const MAX_LOG_LINES = 100;
 
 class ProcessManager extends EventEmitter {
   constructor() {
@@ -86,7 +86,7 @@ class ProcessManager extends EventEmitter {
     return this.logBuffers.get(serviceId);
   }
 
-  getAllLogs(maxLinesPerService = 300) {
+  getAllLogs(maxLinesPerService = 100) {
     const result = {};
     for (const [id, buffer] of this.logBuffers.entries()) {
       result[id] = buffer.slice(-maxLinesPerService);
@@ -103,7 +103,7 @@ class ProcessManager extends EventEmitter {
     };
     buffer.push(logEntry);
     if (buffer.length > MAX_LOG_LINES) {
-      buffer.shift();
+      buffer.splice(0, buffer.length - MAX_LOG_LINES);
     }
     this.emit('log', { serviceId, ...logEntry });
   }
